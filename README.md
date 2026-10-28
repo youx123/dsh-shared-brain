@@ -68,9 +68,27 @@
 
 ## 装上
 
-装完都要把 `dsh-shared-brain` 加进 profile 的 `package.json` → `dsh.profile.bundles`，然后**重启 DSH 宿主**（CLI 安装不像市场那样热挂载）。桌面版也可以在「设置 → 插件」里装 tgz。
+装完都要把 `dsh-shared-brain` 写进 profile 的 `package.json` → `dsh.profile.bundles`，然后**重启 DSH 宿主**。
 
-### 1. 下载 Release 里的 tgz（推荐）
+### 方式一：桌面版设置页（最省事）
+
+1. 打开 **设置 → 插件 → 安装插件**
+2. 粘贴下面任意一个，回车：
+
+```
+https://github.com/youx123/dsh-shared-brain
+```
+
+```
+https://github.com/youx123/dsh-shared-brain/releases/download/v0.8.0/dsh-shared-brain-0.8.0.tgz
+```
+
+3. 装完在插件列表里确认 `dsh-shared-brain` 在启用状态，重启 DSH
+
+> GitHub 地址和 tgz 直链不经过安装源，本机需要能直接访问 GitHub（或者配好代理）。
+> 网络不通时用方式二，先把 tgz 下载下来再喂给 CLI。
+
+### 方式二：命令行装 Release 里的 tgz
 
 到 [Releases](https://github.com/youx123/dsh-shared-brain/releases) 下载 `dsh-shared-brain-0.8.0.tgz`，然后：
 
@@ -78,7 +96,13 @@
 dsh plugin --profile <你的 profile> add ./dsh-shared-brain-0.8.0.tgz
 ```
 
-### 2. 从源码自己打一个
+### 方式三：直接装 git 源
+
+```bash
+dsh plugin --profile <你的 profile> add git+https://github.com/youx123/dsh-shared-brain.git
+```
+
+### 方式四：从源码自己打一个
 
 ```bash
 git clone https://github.com/youx123/dsh-shared-brain.git
@@ -87,13 +111,8 @@ npm pack                       # 产出 dsh-shared-brain-0.8.0.tgz
 dsh plugin --profile <你的 profile> add ./dsh-shared-brain-0.8.0.tgz
 ```
 
-### 3. 直接装 git 源
-
-```bash
-dsh plugin --profile <你的 profile> add git+https://github.com/youx123/dsh-shared-brain.git
-```
-
 > 本插件是纯 JS，装完不需要构建；`files` 只发布 `lib/`、`cordis.patch.yml`、`README.md`、`LICENSE`。
+> 装完打开设置页能看到新的「共享大脑」一节，说明宿主已经加载到它了。
 
 ## 在哪里调
 
