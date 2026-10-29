@@ -1,6 +1,6 @@
 {
   "name": "dsh-shared-brain",
-  "version": "0.9.2",
+  "version": "0.9.3",
   "description": "让人设与记忆在所有会话之间共享，并按认知/底线/情感/本能/声音分层加权",
   "keywords": [
     "dsh",

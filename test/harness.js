@@ -39,7 +39,7 @@ writeFileSync(
 const mod = await import('../lib/index.js')
 const { classify } = await import('../lib/classify.js')
 const { createSessionCatalog } = await import('../lib/sessions.js')
-const { readModules, writeModules, MEMORY_MODULES } = await import('../lib/modules.js')
+const { readModules, writeModules, MEMORY_MODULES, MODULE_PROFILES, normalizeModules } = await import('../lib/modules.js')
 const { recallModules, renderModuleRecall, renderVoice } = await import('../lib/weighted-recall.js')
 const { readStore, writeStore, brainFile, pruneExpired, isAlive } = await import('../lib/store.js')
 const { activePersona, personaList, selectPersona, savePersona, deletePersona, adoptLegacyPersona, personaFile, readPersona } = await import('../lib/persona.js')
@@ -409,6 +409,7 @@ console.log('== 语音 / 唱歌参数 ==')
   console.log(' ', JSON.stringify(speech))
   assert(speech.rate === 1 && speech.pitch === 1 && speech.volume === 0.9, '语音默认值正确')
   assert(speech.sing.enabled === false, '唱歌默认关闭')
+
   const res = setSpeech(readModules(), { voiceName: '晓晓', rate: 1.2, sing: { enabled: true, bpm: 100 } })
   assert(res.changed === true, '语音参数可改')
   const after = normalizeSpeech(res.modules.voice.style.speech)
@@ -895,6 +896,33 @@ console.log('== 0.9：按会话隔离 + 自动互动真实化 ==')
   assert(clientSrc.includes('setAgentiveInterval'), '客户端会调用 setAgentiveInterval')
   assert(clientSrc.includes('runProactive'), '客户端有「立刻主动一次」按钮')
   assert(clientSrc.includes('intervalDraft: proactiveMinutes'), '客户端有主动间隔输入草稿')
+}
+
+console.log('== 底线：条数上限别把低权重底线截掉 ==')
+{
+  // 0.9.3 的真实问题：底线 limit 硬编码 12，用户手动钉了 14 条常用底线，
+  // 靠后（权重低）的 2 条被悄悄截掉。底线是硬约束，不该被静默丢弃。
+  assert(MODULE_PROFILES.bottomline.limit >= 24, '底线 limit 提到 24，常驻硬约束不会被截断')
+
+  // 造 14 条钉住的底线，全部应该出现在渲染结果里
+  const manyModules = normalizeModules({
+    bottomline: {
+      enabled: true,
+      weight: 0.9,
+      items: Array.from({ length: 14 }, (_, i) => ({
+        text: `底线第 ${i + 1} 条`,
+        weight: 1 - i * 0.02,
+        pinned: true,
+        source: 'manual',
+        lifetime: 'permanent',
+      })),
+    },
+  })
+  const manyRecall = recallModules(manyModules, '完全无关的查询')
+  assert(manyRecall.always.length === 14, '14 条钉住的底线全部常驻')
+  const manyText = renderModuleRecall(manyRecall)
+  assert(manyText.includes('底线第 1 条') && manyText.includes('底线第 14 条'), '最后一条底线也在渲染文本里')
+  assert(manyText.includes('【底线】'), '底线段标题正确')
 }
 
 try {
