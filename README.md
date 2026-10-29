@@ -80,7 +80,7 @@ https://github.com/youx123/dsh-shared-brain
 ```
 
 ```
-https://github.com/youx123/dsh-shared-brain/releases/download/v0.8.0/dsh-shared-brain-0.8.0.tgz
+https://github.com/youx123/dsh-shared-brain/releases/download/v0.9.1/dsh-shared-brain-0.9.1.tgz
 ```
 
 3. 装完在插件列表里确认 `dsh-shared-brain` 在启用状态，重启 DSH
@@ -90,10 +90,10 @@ https://github.com/youx123/dsh-shared-brain/releases/download/v0.8.0/dsh-shared-
 
 ### 方式二：命令行装 Release 里的 tgz
 
-到 [Releases](https://github.com/youx123/dsh-shared-brain/releases) 下载 `dsh-shared-brain-0.8.0.tgz`，然后：
+到 [Releases](https://github.com/youx123/dsh-shared-brain/releases) 下载 `dsh-shared-brain-0.9.1.tgz`，然后：
 
 ```bash
-dsh plugin --profile <你的 profile> add ./dsh-shared-brain-0.8.0.tgz
+dsh plugin --profile <你的 profile> add ./dsh-shared-brain-0.9.1.tgz
 ```
 
 ### 方式三：直接装 git 源
@@ -107,8 +107,8 @@ dsh plugin --profile <你的 profile> add git+https://github.com/youx123/dsh-sha
 ```bash
 git clone https://github.com/youx123/dsh-shared-brain.git
 cd dsh-shared-brain
-npm pack                       # 产出 dsh-shared-brain-0.8.0.tgz
-dsh plugin --profile <你的 profile> add ./dsh-shared-brain-0.8.0.tgz
+npm pack                       # 产出 dsh-shared-brain-0.9.1.tgz
+dsh plugin --profile <你的 profile> add ./dsh-shared-brain-0.9.1.tgz
 ```
 
 > 本插件是纯 JS，装完不需要构建；`files` 只发布 `lib/`、`cordis.patch.yml`、`README.md`、`LICENSE`。
@@ -137,6 +137,11 @@ DSH 设置页里有一节「**共享大脑**」，点开就能配置：
   - 这张卡上还有「**默认表情**」——目录里挑不到合适的时用它
 - **搜索记忆**：按关键词翻找旧记忆，结果带模块徽章与永久 / 临时徽章；还能按模块、永久/临时、「只看钉住的」筛选
 - **能力开关**：网络 / 自动互动 两个开关
+- **自动互动 · 定时主动**（**真的有动作**）：开启后插件会**按间隔给还活着的会话发一条「主动检查一下」的指令**（走 `agent.followup()`，会唤醒会话，等于自己开新一轮），不再只是一句提示词：
+  - 填「主动间隔」（分钟）→ 「保存间隔」；改完立即重启定时器，不用重启宿主
+  - 「**立刻主动一次**」按钮：马上给当前所有活跃会话发一条，用来验证是不是真的在跑
+  - 卡片上显示定时器状态、已主动 / 跳过次数、正在盯着的会话数、最近一次主动时间
+  - 间隔范围 1 分钟 ~ 24 小时；关闭自动互动时定时器会停掉
 - **自动互动的生效范围**：选「全部会话」或「指定会话」；选后者时按工作区分组列出会话（当前会话带「当前」标记、正在开着的带「开着」），勾选即可（勾选的会话里才允许主动行为）。列表来自宿主：**活跃会话 ∪ 磁盘上的历史会话**，进来就能看到，不用先打开每个会话；想看最新的点「刷新会话」；实在找不到可以把会话 ID 直接粘进输入框
 - **自动互动的时间窗**：开启后只在指定时段（如 09:00 ~ 23:00，支持跨午夜）才会主动；之外只回应用户明确交代的事
 - **最近的记忆**：最近若干条记忆及其所属模块与权重，每条后面有「永久 / 临时」切换（临时默认 24 小时后过期）
@@ -159,8 +164,19 @@ setWeight / setEnabled / setVoice / setSpeech / clear /
 addItem / removeItem / pinItem / setLifetime / setAgentiveScope /
 setEmojiDir / setEmojiAuto / rescanEmoji / addEmoji /
 setItemScope / setAgentiveTimeWindow / setSessionPersona /
+setAgentiveInterval / runProactive /
 selectPersona / savePersona / deletePersona / searchMemory
 ```
+
+## 与 Cursor「共享大脑」扩展协同（0.9.2+）
+
+若本机安装了 Cursor 扩展 **cursor-shared-brain**，两边共用：
+
+- `~/.cursor/storages/cursor-shared-brain/sync-coordinator.json` —— 协调锁与 generation，避免 DSH 写记忆与 Cursor 写规则互相覆盖
+- `~/.cursor/storages/cursor-shared-brain/sync-registry.json` —— 统一条目指纹
+- `~/.cursor/rules/shared-brain/` —— Cursor 侧规则镜像（记忆在 `memory/*.mdc`）
+
+DSH 插件 `lib/cross-sync.js` 会监听上述文件；**从 Cursor inbound 拉记忆**，对话入库时通过 `writeStoreSynced` 通知 Cursor 端合并。重启 DSH 宿主后生效。
 
 ## 数据落在哪
 
@@ -181,6 +197,8 @@ selectPersona / savePersona / deletePersona / searchMemory
 5. **寿命自动判定**：每条入库的记忆当场判永久 / 临时，到期的临时记忆自动从库里清掉；被召回到的临时记忆会**自动续期**（滑动窗口）。
 6. **冲突以新为准**：新入库的说法如果明显推翻了旧说法（用了「改用 / 换成 / 不用了 / 其实是」这类转向词且主题相同），旧条目会被标记为被取代。
 7. **作用域**：条目可以是「到处生效」或「只在这个工作区生效」——按 cwd 判断；自动互动还可以叠加时间窗与「只在指定会话」。
+8. **跨会话共享（对别的插件开的会话一样生效）**：提示词段落是**全局注册**的，所以 task-board、im、ssh 等插件自己开的会话、以及子代理，都会拿到同一份人设 / 声音 / 记忆；上下文按 `agent.session.header.id` 分开存，**并发会话不会互相污染**（以前用模块级变量，子代理会拿到父会话的召回内容）。
+9. **自动互动会真的动**：定时器按间隔给活跃会话发 `followup`（唤醒会话、开新一轮），而不是只在提示词里写一句「你可以主动一点」。
 
 召回用轻量词袋打分：英文按词、中文按 2–4 字滑窗切分（切更长的片段才能命中「共享记忆」这类词，只切 2 字的话「记忆」和「忆库」对不上）。
 
@@ -200,6 +218,8 @@ selectPersona / savePersona / deletePersona / searchMemory
 /shared-memory network on|off     开关「对外获取信息」
 /shared-memory agentive on|off    开关「主观能动性」
 /shared-memory agentive scope all|session <会话ID...>  设定自动互动生效范围
+/shared-memory agentive interval <分钟>  设定自动互动间隔（1 ~ 1440 分钟）
+/shared-memory agentive now      立刻对所有活跃会话主动搭话一次
 /shared-memory persona           列出人设（内置 + 自定义）
 /shared-memory persona use <id>   切换人设
 /shared-memory persona save <名字> <正文...>   新建人设（自动切过去）
@@ -228,6 +248,9 @@ selectPersona / savePersona / deletePersona / searchMemory
 - Hindsight 的 bank 固定与启停是**两件事**：即使现在没有凭据被停用了，bank 也已经写死了——以后配上 API key，记忆不会再按工作区分裂。
 - 注入的记忆会带上「若与当前指令冲突，以当前指令为准」，底线条目额外标注「仅在被用户明确撤销时才可忽略」。
 - **网络**与**自动互动**默认关闭：前者会对外发请求，后者会让助手自作主张。两者都需要你显式开。
+- **自动互动现在有真实动作**：开启后会起一个定时器（默认每 15 分钟，界面里按分钟改），给**还活着的会话**发一条「主动检查一下」的指令——用的是 `agent.followup()`，会唤醒会话，因此它会自己开新一轮。可以用「立刻主动一次」当场验证。作用范围默认是全部会话（含别的插件开的），也可以限定到指定会话。（0.9.1 修了个 bug：「立刻主动一次」之前没把开关配置传进去，所以永远显示「没有发出」，现在真的会发。）
+- **发不出去时会说实话**：点了「立刻主动一次」如果没发出去，提示里会写清是「没有活跃会话」、是「开关没开」，还是「会话不在作用域 / 时间窗内 / 缺会话 id」，不再只丢一句「没有发出」。
+- **上下文按会话隔离**：以前插件把「当前提示词 / 当前会话 / 当前目录」放在模块级变量里，多个会话并发时互相覆盖，子代理会拿到父会话的召回内容；现在改成按 `agent.session.header.id` 存，注入的内容也按会话去重，不会每一步都塞一遍。
 - **底线永远是你说了算**：自动分类不会把任何东西塞进底线；钉住才生效。
 - **临时记忆会自己过期**：寿命由内容自动判定（见上表），到期自动从库里清掉；你也可以随时手动改永久 / 临时。
 - **语音参数不会被念出来**：音色、语速、音调、音量、唱法是给将来的语音 / 唱歌模块准备的物理参数，只做记录，不进对话文本。

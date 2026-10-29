@@ -738,6 +738,165 @@ console.log('== 0.6：续期 / 冲突 / 作用域 / 时间窗 / 表情 / 按会�
   emoji.stopEmojiLoader()
 }
 
+console.log('== 0.9：按会话隔离 + 自动互动真实化 ==')
+{
+  const state = await import('../lib/agent-state.js')
+  const proactive = await import('../lib/proactive.js')
+
+  // ── agent-state：按会话隔离，不再有跨会话污染 ──
+  state.clearAll()
+  state.setAgentContext('sess-a', { sessionId: 'sess-a', title: '会话 A', cwd: 'D:/a', prompt: 'A 问的问题' })
+  state.setAgentContext('sess-b', { sessionId: 'sess-b', title: '会话 B', cwd: 'D:/b', prompt: 'B 问的问题' })
+  assert(state.currentContext('sess-a').prompt === 'A 问的问题', '会话 A 拿到自己的提示词')
+  assert(state.currentContext('sess-b').prompt === 'B 问的问题', '会话 B 拿到自己的提示词')
+  assert(state.currentContext('sess-a').cwd === 'D:/a', '会话 A 拿到自己的工作目录')
+  assert(state.getAgentContext('sess-a').title === '会话 A', '会话标题按会话存')
+  assert(state.currentContext('sess-unknown').prompt === 'B 问的问题', '未知会话退回最近活跃会话（兜底，不留空）')
+  state.setLastInjected('sess-a', 'PAYLOAD-A')
+  assert(state.lastInjected('sess-a') === 'PAYLOAD-A', '注入去重按会话存')
+  assert(state.lastInjected('sess-b') === '', '去重状态不会串到别的会话')
+  state.clearAgentContext('sess-a')
+  assert(state.getAgentContext('sess-a') === undefined, '会话释放后上下文被清掉')
+  assert(state.getAgentContext('sess-b') !== undefined, '清一个会话不影响另一个')
+
+  // ── proactive：作用域、时间窗、冷却、followup ──
+  assert(proactive.clampProactiveInterval(10) === proactive.MIN_PROACTIVE_INTERVAL_MS, '间隔下限被夹住')
+  assert(proactive.clampProactiveInterval(999999999) === proactive.MAX_PROACTIVE_INTERVAL_MS, '间隔上限被夹住')
+  assert(proactive.clampProactiveInterval(0) === proactive.DEFAULT_PROACTIVE_INTERVAL_MS, '非法间隔回落到默认')
+
+  // scope=session 但一个会话都没选 → 不限定
+  assert(proactive.inProactiveScope({}, { enabled: true, scope: 'session', sessionIds: [] }, 'sess-x') === true, '选了 session 但没挑会话 = 不限定')
+  assert(proactive.inProactiveScope({}, { enabled: true, scope: 'session', sessionIds: ['sess-y'] }, 'sess-x') === false, '指定会话时不在名单内被排除')
+  assert(proactive.inProactiveScope({}, { enabled: true, scope: 'session', sessionIds: ['sess-y'] }, 'sess-y') === true, '指定会话时在名单内被放行')
+  assert(proactive.inProactiveScope({}, { enabled: true, scope: 'all', sessionIds: [] }, 'sess-x') === true, 'scope=all 全部放行')
+  assert(proactive.inProactiveScope({}, { enabled: false, scope: 'all' }, 'sess-x') === false, '开关关掉时不主动')
+
+  // 时间窗
+  assert(proactive.inTimeWindow({ timeWindow: { enabled: false } }) === true, '没设窗口时一直可以')
+  assert(proactive.inTimeWindow({ timeWindow: { enabled: true, start: '09:00', end: '10:00' } }, new Date(2026, 0, 1, 9, 30)) === true, '窗口内可以')
+  assert(proactive.inTimeWindow({ timeWindow: { enabled: true, start: '09:00', end: '10:00' } }, new Date(2026, 0, 1, 23, 0)) === false, '窗口外不主动')
+  assert(proactive.inTimeWindow({ timeWindow: { enabled: true, start: '22:00', end: '06:00' } }, new Date(2026, 0, 1, 23, 0)) === true, '跨午夜窗口判对')
+
+  // nudgeAgent 真的调 followup
+  const calls = []
+  const fakeAgent = {
+    session: { header: { id: 'sess-p', cwd: 'D:/proj' } },
+    followup: (msg) => calls.push({ kind: 'followup', msg }),
+  }
+  const agentive = { enabled: true, scope: 'all', sessionIds: [], timeWindow: { enabled: false } }
+  assert(proactive.nudgeAgent(fakeAgent, { agentive, sessionId: 'sess-p' }) === true, 'nudgeAgent 成功发出')
+  assert(calls.length === 1 && calls[0].kind === 'followup', '用的是 followup（能唤醒会话）')
+  assert(calls[0].msg.content[0].text.includes('自动互动'), '主动指令里说明了这是自动检查')
+  assert(calls[0].msg.source.kind === 'plugin:dsh-shared-brain', '主动指令带插件来源标记')
+
+  // 冷却：紧接着再发会被跳过
+  assert(proactive.nudgeAgent(fakeAgent, { agentive, sessionId: 'sess-p' }) === false, '冷却期内不重复发')
+  assert(proactive.nudgeAgent(fakeAgent, { agentive, sessionId: 'sess-p', force: true }) === true, 'force 能绕过冷却')
+
+  // 没有 followup 就退回 inject
+  const injectCalls = []
+  const injectOnly = {
+    session: { header: { id: 'sess-q', cwd: '' } },
+    inject: (msg) => injectCalls.push(msg),
+  }
+  assert(proactive.nudgeAgent(injectOnly, { agentive, sessionId: 'sess-q' }) === true, '没有 followup 时退回 inject 也能发')
+  assert(injectCalls.length === 1, 'inject 被调用')
+
+  // runProactiveNow：对所有活跃 agent 发
+  proactive.clearProactiveState()
+  const agents = [
+    { session: { header: { id: 'sess-1', cwd: '' } }, followup: () => {} },
+    { session: { header: { id: 'sess-2', cwd: '' } }, followup: () => {} },
+    { session: { header: { id: '', cwd: '' } }, followup: () => {} },
+  ]
+  const fakeCtx = { get: (name) => (name === 'agents' ? { list: () => agents } : undefined) }
+  const nowRes = proactive.runProactiveNow(fakeCtx, { agentive, force: true })
+  assert(nowRes.total === 3 && nowRes.sent === 2, 'runProactiveNow 对有会话 ID 的 agent 各发一次')
+  assert(proactive.proactiveStatus().fired >= 2, '状态里记下了已主动次数')
+
+  // 定时器能起能停
+  proactive.startProactiveLoop(fakeCtx, { intervalMs: 60 * 1000, agentive })
+  assert(proactive.proactiveStatus().running === true, '定时器已启动')
+  assert(proactive.proactiveStatus().intervalMs === 60 * 1000, '定时器间隔正确')
+  proactive.stopProactiveLoop()
+  assert(proactive.proactiveStatus().running === false, '定时器已停')
+
+  // ── modules：agentive.intervalMs 归一化 ──
+  const mods = await import('../lib/modules.js')
+  assert(mods.clampAgentiveInterval(30 * 1000) === mods.MIN_AGENTIVE_INTERVAL_MS, 'agentive 间隔下限被夹住')
+  assert(mods.clampAgentiveInterval(10 * 60 * 1000) === 10 * 60 * 1000, '合法间隔原样保留')
+  assert(mods.clampAgentiveInterval(99 * 60 * 60 * 1000) === mods.MAX_AGENTIVE_INTERVAL_MS, 'agentive 间隔上限被夹住')
+  assert(mods.clampAgentiveInterval(0) === mods.DEFAULT_AGENTIVE_INTERVAL_MS, '非正数回落默认间隔')
+  const defaults = mods.defaultModules()
+  assert(defaults.agentive.intervalMs === mods.DEFAULT_AGENTIVE_INTERVAL_MS, '默认 agentive 间隔是 15 分钟')
+  const normalized = mods.normalizeModules({ agentive: { enabled: true, intervalMs: 5 * 60 * 1000 } })
+  assert(normalized.agentive.intervalMs === 5 * 60 * 1000, '归一化保留合法的间隔')
+  const normalizedBad = mods.normalizeModules({ agentive: { enabled: true, intervalMs: 1 } })
+  assert(normalizedBad.agentive.intervalMs === mods.MIN_AGENTIVE_INTERVAL_MS, '归一化把过小的间隔夹住')
+
+  // ── 桥：setAgentiveInterval / runProactive + 快照里的 proactive 段 ──
+  const bridge = await import('../lib/bridge.js')
+  const intRes = bridge.mutateModules({ action: 'setAgentiveInterval', intervalMinutes: 7 })
+  assert(intRes.ok === true, '桥能改自动互动间隔')
+  assert(Math.abs(readModules().agentive.intervalMs - 7 * 60 * 1000) < 1000, '间隔写进了模块配置')
+  const badInt = bridge.mutateModules({ action: 'setAgentiveInterval', intervalMinutes: 0 })
+  assert(badInt.ok === false && typeof badInt.error === 'string', '非法间隔会明确报错')
+  assert(readModules().agentive.intervalMs !== 0, '非法间隔不会把配置写成 0')
+  const nowRes2 = bridge.mutateModules({ action: 'runProactive' })
+  assert(nowRes2.ok === true, '桥能立刻主动一次')
+  const snap2 = bridge.snapshotOf()
+  assert(snap2.proactive !== undefined, '快照含 proactive 段')
+  assert(typeof snap2.proactive.enabled === 'boolean' && typeof snap2.proactive.runtime === 'object', 'proactive 段带开关与运行状态')
+  assert(snap2.proactive.runtime !== undefined, '运行状态可读')
+
+  // ── 命令：agentive interval / now ──
+  const cmdInterval = await command.handler(['agentive', 'interval', '9'])
+  assert(cmdInterval.kind === 'success' && cmdInterval.text.includes('9'), '/shared-memory agentive interval 9')
+  const cmdBadInterval = await command.handler(['agentive', 'interval', 'abc'])
+  assert(cmdBadInterval.kind === 'error', '/shared-memory agentive interval abc 报错')
+  const cmdNow = await command.handler(['agentive', 'now'])
+  assert(cmdNow.kind === 'success', '/shared-memory agentive now')
+
+  // ── 回归：不传 agentive 配置时不应该「全部跳过」──
+  // （0.9.0 的真实 bug：桥和命令都没把 agentive 配置传进 runProactiveNow，
+  //  于是 agentive = {} → enabled 为假 → 所有会话都被判成不在作用域内）
+  proactive.clearProactiveState()
+  const sentCalls = []
+  const regressAgents = [
+    { session: { header: { id: 'sess-r1', cwd: '' } }, followup: (m) => sentCalls.push(m) },
+  ]
+  const regressCtx = { get: (name) => (name === 'agents' ? { list: () => regressAgents } : undefined) }
+  const noCfg = proactive.runProactiveNow(regressCtx, { force: true })
+  assert(noCfg.sent === 0 && noCfg.enabled === false, '没传配置时如实报告「开关是关的」而不是假装发出')
+  const withCfg = proactive.runProactiveNow(regressCtx, {
+    force: true,
+    getAgentive: () => ({ enabled: true, scope: 'session', sessionIds: [], timeWindow: { enabled: false } }),
+  })
+  assert(withCfg.sent === 1, '传了 agentive 配置就能真的发出去（这是 0.9.0 的回归点）')
+  assert(sentCalls.length === 1, 'followup 真的被调用了')
+
+  // 桥的 runProactive 也要真的发得出去（用桩 agents 服务验证）
+  const bridgeSent = []
+  bridge.setBridgeContext({
+    get: (name) => (name === 'agents' ? { list: () => [{ session: { header: { id: 'sess-b1', cwd: '' } }, followup: (m) => bridgeSent.push(m) }] } : undefined),
+  })
+  const bridgeNow = bridge.mutateModules({ action: 'runProactive' })
+  assert(bridgeNow.ok === true, '桥的 runProactive 返回 ok')
+  assert(bridgeNow.value.sent >= 0, '桥的 runProactive 带上明细')
+  assert(typeof bridgeNow.note === 'string' && bridgeNow.note.length > 0, '桥的 runProactive 给出可读说明')
+
+  const cmdOverview = await command.handler(['list'])
+  assert(cmdOverview.kind === 'success' && cmdOverview.text.includes('自动互动'), '总览里能看到自动互动状态')
+
+  // ── 客户端：设置页有「自动互动 · 定时主动」区块 ──
+  const clientSrc = readFileSync(join(root, 'client-src.js'), 'utf8')
+  assert(clientSrc.includes('proactiveTitle'), '客户端有自动互动区块的文案')
+  assert(clientSrc.includes('ProactiveCard'), '客户端渲染了 ProactiveCard')
+  assert(clientSrc.includes('setAgentiveInterval'), '客户端会调用 setAgentiveInterval')
+  assert(clientSrc.includes('runProactive'), '客户端有「立刻主动一次」按钮')
+  assert(clientSrc.includes('intervalDraft: proactiveMinutes'), '客户端有主动间隔输入草稿')
+}
+
 try {
   rmSync(root, { recursive: true, force: true })
 } catch {}
