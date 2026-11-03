@@ -380,6 +380,35 @@ try {
     assertEqual(tenMinutes.config.intervalMs, 600000, "按分钟填能落成毫秒")
   })
 
+  await awaitTest("显式传进来的 token 会被用上（不必先存进配置）", async () => {
+    const home = join(ROOT, "token-arg")
+    mkdirSync(home, { recursive: true })
+    useHome(home)
+    process.env.DSH_SHARED_BRAIN_TOKEN = ""
+    sync.writeSyncConfig({ enabled: true, repo: "youx/brain", token: "" })
+    const store0 = store.readStore()
+    store0.entries = [entry("t1", "只有显式 token 才能推上去")]
+    store.writeStore(store0)
+    const result = await sync.runRemoteSync({ token: TOKEN })
+    assertEqual(result.ok, true, `显式 token 应该能用：${result.error || ""}`)
+    assert(remote.has("brain/memory.json"), "远端写进去了")
+  })
+
+  await awaitTest("推上去的 memory.json 带上了本机编号", async () => {
+    const home = join(ROOT, "device-id")
+    mkdirSync(home, { recursive: true })
+    useHome(home)
+    remote.clear()
+    sync.writeSyncConfig({ enabled: true, repo: "youx/brain", token: TOKEN })
+    const store1 = store.readStore()
+    store1.entries = [entry("d1", "看看 deviceId 有没有写上")]
+    store.writeStore(store1)
+    const result = await sync.runRemoteSync()
+    assertEqual(result.ok, true, `同步应该成功：${result.error || ""}`)
+    const pushed = remote.get("brain/memory.json")
+    assert(pushed && typeof pushed.data.deviceId === "string" && pushed.data.deviceId.length > 0, `deviceId 不该是空的：${JSON.stringify(pushed?.data.deviceId)}`)
+  })
+
   await awaitTest("没填仓库时给清楚的错误，而不是崩", async () => {
     const home = join(ROOT, "empty")
     mkdirSync(home, { recursive: true })
