@@ -1342,3 +1342,35 @@ const FAKE_OPENAI_ASSIGN = 'api_key = "' + 'sk-' + 'abcdefghijklmnopqrstuvwxyz12
 1. 要不要**由本鱼建一个私有数据仓库**（`youx123/...-data`）跑真实端到端？建仓库属于对外动作，得先点头
 2. 0.9.9 是否现在发 GitHub（tag + Release 附件）
 3. 令牌建议用 fine-grained PAT，只给该仓库 Contents 读写；也可以改成环境变量 `DSH_SHARED_BRAIN_TOKEN`，不落配置
+
+---
+
+## 2026-11-03 补充 14b：跨机同步真机端到端（0.9.9 收尾）
+
+### 建了什么
+私有数据仓库 `youx123/dsh-shared-brain-data`（private，auto_init）。验证完把 `brain/*.json` 删干净了，仓库空着等老大自己用。
+
+### 真机跑的链路（不是模拟）
+两台设备各自独立的 `DSH_HOME` 沙箱 → 同一个真实私有仓库：
+1. A 播种 3 条（含 1 条 `scope: 'session'`）→ 同步 → **远端只有 2 条**，会话级那条没上去
+2. B 播种 2 条 → 同步 → 合并成 4 条推到远端；A 再同步 → 本机也是 4 条
+3. B 删掉 A 的 `e_a2` → 同步（`deleted: 1`、`tombstones: 1`）→ A 同步 → 本机跟着少一条；**再同步一轮仍是 3 条，没有复活**
+4. A 改 `e_b1` 文本（updatedAt +5s）→ 同步 → B 同步 → B 拿到新文本
+5. 人设：A 的 `p_a2` + B 的 `p_b2` 并集；`bySession` 上云后是 `{}`；`current` 取 updatedAt 新的
+6. 设置：`agentive.sessionIds` 被剥掉；`cognition.weight` 超范围被夹到 1（`clampWeight` 上限）
+
+### 真机又抓出两个 bug（已修，commit `30b13de`）
+1. **显式 token 被忽略**：`syncOnce` 只认配置和环境变量，`runRemoteSync({token})` 传了也白传 → 直接报「缺 token」。修：`const token = cleanToken(options.token ?? '') || tokenOf(config)`
+2. **远端 deviceId 一直是空**：`ensureDeviceId(config)` 只返回 id、不写回 `config`，而推上去的 `memory.json.deviceId = config.deviceId` 就是 undefined。修：`config.deviceId = ensureDeviceId(config)`
+→ `tests/remote-sync.test.mjs` 加 2 条（显式 token 可用 / deviceId 落盘）→ **20 通过 / 0 失败**
+
+### 打包与发布（0.9.9 最终版）
+- 重打 `vendor/dsh-shared-brain-0.9.9.tgz` = **3723658 字节 / 133 文件**，integrity `sha512-Gpsqc3grqeZujNngPAW+Ax9Y/JS3G9shZXQ3d7kOoXdNi+dRAHF1qQAtVG+vDgfstZkMeSFLFc2On7J50mmslw==`
+- `pnpm-lock.yaml` 按「`dsh-shared-brain@file:...` 段」精确替换 integrity（旧值 0 残留、antfu 那条完好）
+- 隔离目录 pnpm 11.28.5 重装：26 lib，两个修复标记都在
+- GitHub：main `30b13de`、tag `v0.9.9`、Release https://github.com/youx123/dsh-shared-brain/releases/tag/v0.9.9 ，附件 3723658 字节 state=uploaded，回读一致
+
+### 仍没验证
+- **两台机器同时同步**（真并发 409）：只在单测里人为造过一次 409 重试，真并发没试
+- **大库**：63 条数据量很小，几千条时的 Contents API 体积与 rate limit 没实测
+- 客户端设置页「跨机同步」卡片在真浏览器里的样子（本会话起不了浏览器 daemon）
