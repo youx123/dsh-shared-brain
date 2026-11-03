@@ -80,7 +80,7 @@ https://github.com/youx123/dsh-shared-brain
 ```
 
 ```
-https://github.com/youx123/dsh-shared-brain/releases/download/v0.9.3/dsh-shared-brain-0.9.3.tgz
+https://github.com/youx123/dsh-shared-brain/releases/download/v0.9.7/dsh-shared-brain-0.9.7.tgz
 ```
 
 3. 装完在插件列表里确认 `dsh-shared-brain` 在启用状态，重启 DSH
@@ -90,10 +90,10 @@ https://github.com/youx123/dsh-shared-brain/releases/download/v0.9.3/dsh-shared-
 
 ### 方式二：命令行装 Release 里的 tgz
 
-到 [Releases](https://github.com/youx123/dsh-shared-brain/releases) 下载 `dsh-shared-brain-0.9.3.tgz`，然后：
+到 [Releases](https://github.com/youx123/dsh-shared-brain/releases) 下载 `dsh-shared-brain-0.9.7.tgz`，然后：
 
 ```bash
-dsh plugin --profile <你的 profile> add ./dsh-shared-brain-0.9.3.tgz
+dsh plugin --profile <你的 profile> add ./dsh-shared-brain-0.9.7.tgz
 ```
 
 ### 方式三：直接装 git 源
@@ -107,8 +107,8 @@ dsh plugin --profile <你的 profile> add git+https://github.com/youx123/dsh-sha
 ```bash
 git clone https://github.com/youx123/dsh-shared-brain.git
 cd dsh-shared-brain
-npm pack                       # 产出 dsh-shared-brain-0.9.3.tgz
-dsh plugin --profile <你的 profile> add ./dsh-shared-brain-0.9.3.tgz
+npm pack                       # 产出 dsh-shared-brain-0.9.7.tgz
+dsh plugin --profile <你的 profile> add ./dsh-shared-brain-0.9.7.tgz
 ```
 
 > 本插件是纯 JS，装完不需要构建；`files` 只发布 `lib/`、`cordis.patch.yml`、`README.md`、`LICENSE`。
@@ -190,7 +190,7 @@ DSH 插件 `lib/cross-sync.js` 会监听上述文件；**从 Cursor inbound 拉�
 
 ## 工作方式
 
-1. **入库**：每轮对话结束自动摘要成「用户问 → 助手答」，分类器决定它进哪个模块，条目带自己的权重。
+1. **入库**：每轮对话结束自动摘要成「用户问 → 助手答」，分类器决定它进哪个模块，条目带自己的权重。**没信息量的对话直接跳过**（「继续」「ok」这种不进库），**带密钥的先脱敏**再入库。
 2. **召回**：每轮开始用你这次的提问跨模块检索；底线条目无条件注入，其余按加权分数取。
 3. **本能养成**：同一主题反复出现 → 自动归入本能 → 权重上涨 → 之后不用你提，它自己会冒出来。
 4. **人设自持**：人设正文直接进提示词；库里没有人设就回落到内置的「大肥鱼」；旧的人设插件库在首次启动时导入一次，之后各管各的。
@@ -199,6 +199,7 @@ DSH 插件 `lib/cross-sync.js` 会监听上述文件；**从 Cursor inbound 拉�
 7. **作用域**：条目可以是「到处生效」或「只在这个工作区生效」——按 cwd 判断；自动互动还可以叠加时间窗与「只在指定会话」。
 8. **跨会话共享（对别的插件开的会话一样生效）**：提示词段落是**全局注册**的，所以 task-board、im、ssh 等插件自己开的会话、以及子代理，都会拿到同一份人设 / 声音 / 记忆；上下文按 `agent.session.header.id` 分开存，**并发会话不会互相污染**（以前用模块级变量，子代理会拿到父会话的召回内容）。
 9. **自动互动会真的动**：定时器按间隔给活跃会话发 `followup`（唤醒会话、开新一轮），而不是只在提示词里写一句「你可以主动一点」。
+10. **记忆库不存凭据**：正文与标签入库前都过一遍脱敏（PAT / API key / 密码 / 带密码的连接串 → `[已脱敏]`）；老库里已有的也会在召回时顺手洗掉。
 
 召回用轻量词袋打分：英文按词、中文按 2–4 字滑窗切分（切更长的片段才能命中「共享记忆」这类词，只切 2 字的话「记忆」和「忆库」对不上）。
 
@@ -259,6 +260,22 @@ DSH 插件 `lib/cross-sync.js` 会监听上述文件；**从 Cursor inbound 拉�
 - **语音参数不会被念出来**：音色、语速、音调、音量、唱法是给将来的语音 / 唱歌模块准备的物理参数，只做记录，不进对话文本。
 - **会话列表是怎么来的**：宿主里没在 `inject` 里声明的服务只能靠 `ctx.get()` 拿——所以插件用 `ctx.get('sessions')`、`ctx.get('sessionPersistence')`、`ctx.get('workspaceRegistry')` 三份数据合成会话目录，后台刷新 + 读缓存（3 秒节流），不会卡住设置页。
 - **表情从目录里来，而且是定时自己加载的**：默认目录 `~/.dsh/storages/dsh-shared-brain/emoji`（插件启动时会建出来），也可以指向任意目录；`.txt` 一行一个表情（或「名字: 表情」），图片表情（`.png` / `.gif` / `.webp` …）的文件名就是情绪名。默认每 5 分钟自动扫一次，往目录里丢文件就行，不用在面板里一个个加；自动加载可以关，关掉后只在点「立即重扫」时更新。
+- **密钥不会进记忆库**（0.9.6 新增）：记忆是**长期**存储的，还会被召回进提示词，所以入库前一律脱敏——GitHub PAT（`ghp_` / `github_pat_`）、OpenAI / Anthropic key、Slack / AWS / Google key、`api_key = "..."` 这类赋值形式、带密码的连接串，全都会换成 `[已脱敏]`。手动从设置页或 `/shared-memory add` 加的条目也一样会被洗一遍。
+- **老库里残留的密钥会被清掉**（0.9.6 新增）：脱敏是 0.9.6 才加的，之前入库的条目可能已经含有凭据。插件在每次召回时会顺手把正文和**标签**里的密钥洗一遍（标签容易漏——摘要时英文 token 会被当成检索标签）。
+- **废话不入库**（0.9.6 新增）：以前只要「用户问 + 助手答」凑够 12 个字就记，结果库里堆满了「继续 → Excellent!」「ok → 好的」这种对话快照，召回时会召出一堆噪音。现在只有**有信息量**的对话才入库：够长、含决策 / 偏好信号（记住 / 以后都 / 改成 / 不要 / 默认 …）、或者带路径 / 版本 / 命令 / 报错。纯寒暄和纯选项应答（「选 2 吧」）直接跳过。
+- **语音参数真的会存下来**（0.9.6 修复）：以前在设置页改语速 / 音调 / 音量 / 唱法，提示写着「语音参数已更新：语速 1.15×」，刷新一看还是旧值——桥接层把计算结果丢掉、写回了旧配置。现在写的是新配置，并有回归测试钉住。（命令行 `/shared-memory speech` 那条路径一直是对的。）
+- **清空要按两下**（0.9.6 新增）：「清空全部」和每个模块的「清空」都是先点一下变成「确认清空？」，4 秒内再点一下才真的清，避免一手滑把整个记忆库抹掉。不弹浏览器 confirm——插件界面在 webview 里，confirm 不一定可用。
+- **时间窗可以先填时间再开**（0.9.6 修复）：时间窗关着的时候，开始 / 结束时间的输入框以前是禁用的，想先填好再打开就得来回点；现在随时能改，只有开关决定它生不生效。
+- **人设列表不再重名两份**（0.9.6 修复）：内置人设被改过之后会另存一份同 id 的自定义副本，以前列表把两份都列出来，设置页里会出现两个「大肥鱼」；现在同一个 id 只出现一次（自定义覆盖内置）。
+- **外部工具写进来的东西也会被洗**（0.9.6 修复）：脱敏不只管插件自己的写入路径。Cursor「共享大脑」扩展、别的工具、甚至有人手工改 `memory.json` / `modules.json`，都可能把凭据写进去。现在**读库时也过一遍闸门**——不管这份记忆是谁写进来的，正文和标签里的密钥都会被换成 `[已脱敏]` 并写回磁盘。
+
+## 0.9.7 更新说明
+
+- **有了「情感」模块**：新增 `lib/emotion.js`。每轮对话结束后会判定一次心情，记在 `~/.dsh/storages/dsh-shared-brain/emotion.json` 里（七根情绪维度：开心 / 踏实 / 甜蜜 / 心疼 / 担心 / 难过 / 吃醋），带基线、衰减和事件注入。可以在设置页或用 `/shared-memory mood` 开关。
+- **自动互动「有人味」了**（新增 `lib/proactive-mood.js`）：以前定时器醒来只会说一句固定的「主动检查一下」，像打卡。现在它会看当前心情再决定**说不说、说什么、什么语气**——心情低落时更关心更主动，高涨时分享进展，中性且刚说过就安静；每天说的次数会**按剩余时间摊开**而不是上午用光下午哑火；话题会轮换，不会重复同一句；「还没 / 待办 / 记得」这类线索会优先提醒。设置页「自动互动 · 定时主动」卡片下有「心情驱动」区块可调。
+- **底线不再跟着 Cursor 同步来去**：以前底线是两边双向同步的——在 Cursor 里删了会被同步回 DSH，在 DSH 里删了也被 Cursor 写回来（因为没有「删除标记」，本地那份永远赢）。现在**底线只认 DSH 侧**（设置页添加或 `/shared-memory` 注入），Cursor 侧只读、单向镜像成规则文件。修 `lib/cross-sync.js`：Cursor 记忆规则扫描补齐 `cognition`（以前 `~/.cursor/rules/shared-brain/cognition` 里的文件从来没同步进 DSH），并跳过 `bottomline` / `user`。
+- **目录图谱能展开路径了**（新增 `lib/graph-expand.js`）：召回里带目录图谱路径时，会展开成可读的文件树。
+- **装一次不再丢补丁**：插件是 pnpm `file:` 依赖（`file:vendor/dsh-shared-brain-0.9.7.tgz`）。以前在 DSH 市场里做任何一次插件操作，都会重放整棵依赖树、把 `node_modules` 里的修改覆盖回官方包——昨天打的补丁当场蒸发。现在官方包本身带了这些修复，并且 `pnpm-lock.yaml` 里的 integrity 跟着包同步。
 
 ## License
 

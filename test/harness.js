@@ -41,7 +41,7 @@ const { classify } = await import('../lib/classify.js')
 const { createSessionCatalog } = await import('../lib/sessions.js')
 const { readModules, writeModules, MEMORY_MODULES, MODULE_PROFILES, normalizeModules } = await import('../lib/modules.js')
 const { recallModules, renderModuleRecall, renderVoice } = await import('../lib/weighted-recall.js')
-const { readStore, writeStore, brainFile, pruneExpired, isAlive } = await import('../lib/store.js')
+const { readStore, writeStore, brainFile, pruneExpired, isAlive, redactStoreSecrets } = await import('../lib/store.js')
 const { activePersona, personaList, selectPersona, savePersona, deletePersona, adoptLegacyPersona, personaFile, readPersona } = await import('../lib/persona.js')
 const { judgeLifetime, formatSpan } = await import('../lib/lifetime.js')
 const { normalizeSpeech, setSpeech, SPEECH_LIMITS } = await import('../lib/modules.js')
@@ -60,22 +60,30 @@ function assert(cond, label, extra = '') {
 
 console.log('== apply ==')
 const sections = []
+const contexts = []
 const hooks = {}
 let command = null
 const ctx = {
   logger: () => ({ info: (m) => console.log('  [info]', m), warn: (m) => console.log('  [warn]', m) }),
-  systemPrompt: { section: (s) => sections.push(s), getSectionOrder: () => 1500 },
+  systemPrompt: {
+    section: (s) => sections.push(s),
+    getSectionOrder: () => 1500,
+    // 心情上下文（shared-brain:mood）走的是 context()，不是 section()
+    context: (o) => contexts.push(o),
+  },
   on: (name, fn) => { hooks[name] = fn },
   effect: (fn) => { fn(); return { dispose() {} } },
   commands: { register: (c) => { command = c } },
 }
 mod.apply(ctx)
 console.log('  sections:', sections.map((s) => s.name).join(', '))
+console.log('  contexts:', contexts.map((c) => c.name).join(', '))
 console.log('  hooks:', Object.keys(hooks).join(', '))
 assert(sections.length === 4, '注册了 4 个提示词段落（记忆/人设/声音/能力）')
 assert(sections.some((s) => s.name === 'shared-brain:memory'), '记忆段落存在')
 assert(sections.some((s) => s.name === 'shared-brain:voice'), '声音段落存在')
 assert(sections.some((s) => s.name === 'shared-brain:capability'), '能力段落存在')
+assert(contexts.some((c) => c.name === 'shared-brain:mood'), '心情上下文段落已注册')
 assert(Boolean(hooks['agent/pre-step'] && hooks['agent/turn-stopping'] && hooks['agent/disposed']), '3 个会话钩子已注册')
 assert(Boolean(command), '命令已注册')
 
@@ -787,7 +795,8 @@ console.log('== 0.9：按会话隔离 + 自动互动真实化 ==')
   const agentive = { enabled: true, scope: 'all', sessionIds: [], timeWindow: { enabled: false } }
   assert(proactive.nudgeAgent(fakeAgent, { agentive, sessionId: 'sess-p' }) === true, 'nudgeAgent 成功发出')
   assert(calls.length === 1 && calls[0].kind === 'followup', '用的是 followup（能唤醒会话）')
-  assert(calls[0].msg.content[0].text.includes('自动互动'), '主动指令里说明了这是自动检查')
+  assert(calls[0].msg.content[0].text.includes('主动搭话'), '主动指令里说明了这是自动搭话')
+  assert(calls[0].msg.content[0].text.includes('不是老大发的消息'), '主动指令说明这是大脑自己找上门的')
   assert(calls[0].msg.source.kind === 'plugin:dsh-shared-brain', '主动指令带插件来源标记')
 
   // 冷却：紧接着再发会被跳过
@@ -923,6 +932,103 @@ console.log('== 底线：条数上限别把低权重底线截掉 ==')
   const manyText = renderModuleRecall(manyRecall)
   assert(manyText.includes('底线第 1 条') && manyText.includes('底线第 14 条'), '最后一条底线也在渲染文本里')
   assert(manyText.includes('【底线】'), '底线段标题正确')
+}
+
+{
+  console.log('== 安全：密钥不进记忆库 + 废话不入库 ==')
+  const { redactSecrets, hasSecret, summarizeTurn, isWorthRemembering } = await import('../lib/summarize.js')
+
+  // 假 PAT 在运行时拼装（'ghp' + '_...'），源码里不出现连续的 ghp_ 字面量 ——
+  // GitHub 的 push protection 只认连续字面量，测试串也会被当成真凭据拦下来。
+  const FAKE_PAT = 'gh' + 'p_TESTfakePATforunittestonly00000'
+  const FAKE_FINE_PAT = 'github_pat' + '_11ABCDEFG0abcdefghijklmnopqrstuvwxyz'
+  const FAKE_PAT_BODY = FAKE_PAT.slice('ghp_'.length)
+
+  // GitHub PAT
+  assert(hasSecret(FAKE_PAT), 'GitHub PAT 能被识别')
+  assert(!redactSecrets(FAKE_PAT).includes(FAKE_PAT_BODY), 'PAT 被替换掉了')
+  assert(hasSecret(FAKE_FINE_PAT), 'fine-grained PAT 能被识别')
+  assert(hasSecret('sk-ant-api03-abcdefghijklmnopqrstuvwxyz123456'), 'Anthropic key 能被识别')
+  assert(hasSecret('AKIAIOSFODNN7EXAMPLE'), 'AWS key 能被识别')
+  assert(hasSecret('api_key = "sk-abcdefghijklmnopqrstuvwxyz12345"'), '赋值形式的 key 能被识别')
+  assert(hasSecret('token: abcdef1234567890abcdef'), 'token: 形式能被识别')
+  assert(!hasSecret('这句话里没有密钥'), '普通文本不误报')
+
+  // 摘要里不能带密钥
+  const secretTurn = summarizeTurn({
+    user: `这是我的 PAT ${FAKE_PAT} 请帮我记住`,
+    assistant: '好的，已经记下了。',
+  })
+  assert(secretTurn && !secretTurn.text.includes(FAKE_PAT_BODY), '摘要里的密钥被脱敏了')
+  assert(secretTurn && secretTurn.text.includes('[已脱敏]'), '摘要里留了脱敏占位符')
+
+  // 库里已经存在的密钥也要能清洗
+  const dirtyStore = {
+    entries: [
+      { id: 'a', text: `token 是 ${FAKE_PAT} 记一下`, weight: 0.5 },
+      { id: 'b', text: '普通的一条记忆', weight: 0.5 },
+    ],
+  }
+  const { store: cleanedStore, cleaned } = redactStoreSecrets(dirtyStore)
+  assert(cleaned === 1, '清洗统计正确')
+  assert(!cleanedStore.entries[0].text.includes(FAKE_PAT_BODY), '库里的密钥被清洗掉')
+  assert(cleanedStore.entries[1].text === '普通的一条记忆', '正常条目没被动过')
+
+  // 废话不入库
+  assert(summarizeTurn({ user: '继续', assistant: 'Excellent!' }) === null, '「继续 → Excellent!」不入库')
+  assert(summarizeTurn({ user: 'ok', assistant: '好的' }) === null, '「ok → 好的」不入库')
+  assert(isWorthRemembering('以后所有会话都用人设「大肥鱼」'), '偏好类短句值得记')
+  assert(isWorthRemembering('一起改，走正常的 tgz + 重启'), '决策类短句值得记')
+  assert(!isWorthRemembering('选2吧'), '纯选项应答不值得记')
+  assert(summarizeTurn({ user: '发布到github 让人安装使用', assistant: '仓库准备好了。' }) !== null, '重要请求会入库')
+
+  // 外部工具绕过写入闸门也要拦住：Cursor 扩展等会直接改 memory.json / modules.json
+  const { normalizeStore } = await import('../lib/store.js')
+  const { normalizeModules } = await import('../lib/modules.js')
+  const external = normalizeStore({
+    entries: [
+      { id: 'x', text: `外部写进来的 ${FAKE_PAT} 记住`, weight: 0.5 },
+      { id: 'y', text: '外部写进来的正常条目', weight: 0.5 },
+    ],
+  })
+  assert(!external.entries[0].text.includes(FAKE_PAT_BODY), '外部写入的密钥在读路径被擦掉')
+  assert(external.entries[0].text.includes('[已脱敏]'), '外部写入的密钥留下占位符')
+  assert(external.entries[1].text === '外部写进来的正常条目', '正常条目没被误伤')
+  const externalModules = normalizeModules({
+    cognition: { items: [{ text: `模块里的 ${FAKE_PAT}` }] },
+  })
+  assert(!externalModules.cognition.items[0].text.includes(FAKE_PAT_BODY), '外部写入的模块条目在读路径被擦掉')
+}
+
+console.log('== 0.9.6：保存真的落盘（按钮实测发现的坑）==')
+{
+  const clientSrc = readFileSync(join(root, 'client-src.js'), 'utf8')
+  // ① 桥的 setSpeech 以前写的是旧 modules（setSpeech 返回的是新对象），
+  //    界面上提示「语速 1.15×」，磁盘上还是 1 —— 看着保存成功、其实没存。
+  bridge.mutateModules({ action: 'setSpeech', rate: 1.15 })
+  assert(readModules().voice.style.speech.rate === 1.15, '桥 setSpeech 真的写进了磁盘')
+  bridge.mutateModules({ action: 'setSpeech', sing: { enabled: true, bpm: 108 } })
+  const singNow = readModules().voice.style.speech.sing
+  assert(singNow.enabled === true && singNow.bpm === 108, '桥 setSpeech 的唱法参数也落盘')
+  assert(readModules().voice.style.speech.rate === 1.15, '改唱法没把语速打回默认值（深合并）')
+
+  // ② 清空按钮要二次确认：一次点击绝不能蒸发整个记忆库。
+  assert(clientSrc.includes('confirmClear'), '清空按钮有「确认清空？」的二次确认文案')
+  assert(clientSrc.includes('pendingClear'), '清空按钮有 pending 状态（先点一次变成确认态）')
+  assert(!/onClick: \(\) => run\(\{ action: "clear" \}\)/.test(clientSrc), '「清空全部」不再直接 run clear')
+  assert(clientSrc.includes('onClick: () => onClear()'), '「清空全部」走 onClear（带确认）')
+  assert(clientSrc.includes('props.pendingClear === id'), '单模块清空也显示确认态')
+
+  // ③ 时间窗输入框不该跟着开关一起禁用（否则想先填时间得点两遍）。
+  assert(!/disabled: busy \|\| !window\.enabled/.test(clientSrc), '时间窗输入框不再被开关禁用')
+  assert(/onChange: \(event\) => onWindow\(\{ start: event\.target\.value \}\)/.test(clientSrc), '改开始时间不再强行打开时间窗')
+
+  // ④ 人设列表同 id 只出现一次（内置被改过之后会多一份同 id 副本）。
+  const listed = personaList()
+  const ids = listed.list.map((x) => x.id)
+  assert(new Set(ids).size === ids.length, '人设列表没有重复 id')
+  assert(listed.list.filter((x) => x.name === '大肥鱼').length === 1, '「大肥鱼」只出现一次')
+  assert(Array.isArray(listed.overridden), '列表带上 overridden 标记')
 }
 
 try {
