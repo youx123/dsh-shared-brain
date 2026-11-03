@@ -80,7 +80,7 @@ https://github.com/youx123/dsh-shared-brain
 ```
 
 ```
-https://github.com/youx123/dsh-shared-brain/releases/download/v0.9.8/dsh-shared-brain-0.9.8.tgz
+https://github.com/youx123/dsh-shared-brain/releases/download/v0.9.9/dsh-shared-brain-0.9.9.tgz
 ```
 
 3. 装完在插件列表里确认 `dsh-shared-brain` 在启用状态，重启 DSH
@@ -90,10 +90,10 @@ https://github.com/youx123/dsh-shared-brain/releases/download/v0.9.8/dsh-shared-
 
 ### 方式二：命令行装 Release 里的 tgz
 
-到 [Releases](https://github.com/youx123/dsh-shared-brain/releases) 下载 `dsh-shared-brain-0.9.8.tgz`，然后：
+到 [Releases](https://github.com/youx123/dsh-shared-brain/releases) 下载 `dsh-shared-brain-0.9.9.tgz`，然后：
 
 ```bash
-dsh plugin --profile <你的 profile> add ./dsh-shared-brain-0.9.8.tgz
+dsh plugin --profile <你的 profile> add ./dsh-shared-brain-0.9.9.tgz
 ```
 
 ### 方式三：直接装 git 源
@@ -107,8 +107,8 @@ dsh plugin --profile <你的 profile> add git+https://github.com/youx123/dsh-sha
 ```bash
 git clone https://github.com/youx123/dsh-shared-brain.git
 cd dsh-shared-brain
-npm pack                       # 产出 dsh-shared-brain-0.9.8.tgz
-dsh plugin --profile <你的 profile> add ./dsh-shared-brain-0.9.8.tgz
+npm pack                       # 产出 dsh-shared-brain-0.9.9.tgz
+dsh plugin --profile <你的 profile> add ./dsh-shared-brain-0.9.9.tgz
 ```
 
 > 本插件是纯 JS，装完不需要构建；`files` 发布 `lib/`、`assets/`、`cordis.patch.yml`、`README.md`、`LICENSE`（`assets/emoji/` 是内置表情包，少了它表情功能不可用）。
@@ -262,6 +262,7 @@ DSH 插件 `lib/cross-sync.js` 会监听上述文件；**从 Cursor inbound 拉�
 - **表情从目录里来，而且是定时自己加载的**：默认目录 `~/.dsh/storages/dsh-shared-brain/emoji`（插件启动时会建出来），也可以指向任意目录；`.txt` 一行一个表情（或「名字: 表情」），图片表情（`.png` / `.gif` / `.webp` …）的文件名就是情绪名。默认每 5 分钟自动扫一次，往目录里丢文件就行，不用在面板里一个个加；自动加载可以关，关掉后只在点「立即重扫」时更新。
 - **按心情挑表情**（0.9.8 新增）：心情上下文里会附一句「这会儿适合哪几个表情」，低落时**不会**让你甩「庆祝」，高涨时才推荐活泼的。开关和频率在设置页的表情卡片里（不提 / 少量 / 多一点）。
 - **自带一套表情，不用另装插件**（0.9.8 新增）：插件内置**大肥鱼表情包 100 张 GIF**（`assets/emoji/`），并把其中 40 张按 `dsh-emoji-core@1` 语义 key 对好号（开心 / 抱抱 / 好累 / 恭喜 …）。提示词里直接给**现成的 markdown 图片**，模型照抄就能出图，不需要装 `dsh-emoji`。想换包也可以把符合该协议的包放进 `~/.dsh/emoji-packs/`，插件只读不写。
+- **多台机器共用一个大脑**（0.9.9 新增）：把记忆、人设、设置放进一个**私有 Git 仓库**（GitHub Contents API），几台机器定时 pull-merge-push。只同步全局条目，会话内的记忆不出本机；本机删掉的条目会带墓碑同步过去，不会在别的机器上复活。设置页「跨机同步」卡片里填 `owner/repo` 和令牌即可。
 - **内置表情的许可要留意**：那 100 张 GIF 来自 [ai-biaoqingbao](https://github.com/diwer/ai-biaoqingbao)，是 **CC BY-NC-SA 4.0（署名 · 非商业 · 相同方式共享）**，和本仓库代码的 MIT **不是**同一个许可；商用请自行取得授权，细节见 `assets/emoji/NOTICE.txt`。
 - **密钥不会进记忆库**（0.9.6 新增）：记忆是**长期**存储的，还会被召回进提示词，所以入库前一律脱敏——GitHub PAT（`ghp_` / `github_pat_`）、OpenAI / Anthropic key、Slack / AWS / Google key、`api_key = "..."` 这类赋值形式、带密码的连接串，全都会换成 `[已脱敏]`。手动从设置页或 `/shared-memory add` 加的条目也一样会被洗一遍。
 - **老库里残留的密钥会被清掉**（0.9.6 新增）：脱敏是 0.9.6 才加的，之前入库的条目可能已经含有凭据。插件在每次召回时会顺手把正文和**标签**里的密钥洗一遍（标签容易漏——摘要时英文 token 会被当成检索标签）。
@@ -271,6 +272,34 @@ DSH 插件 `lib/cross-sync.js` 会监听上述文件；**从 Cursor inbound 拉�
 - **时间窗可以先填时间再开**（0.9.6 修复）：时间窗关着的时候，开始 / 结束时间的输入框以前是禁用的，想先填好再打开就得来回点；现在随时能改，只有开关决定它生不生效。
 - **人设列表不再重名两份**（0.9.6 修复）：内置人设被改过之后会另存一份同 id 的自定义副本，以前列表把两份都列出来，设置页里会出现两个「大肥鱼」；现在同一个 id 只出现一次（自定义覆盖内置）。
 - **外部工具写进来的东西也会被洗**（0.9.6 修复）：脱敏不只管插件自己的写入路径。Cursor「共享大脑」扩展、别的工具、甚至有人手工改 `memory.json` / `modules.json`，都可能把凭据写进去。现在**读库时也过一遍闸门**——不管这份记忆是谁写进来的，正文和标签里的密钥都会被换成 `[已脱敏]` 并写回磁盘。
+
+## 0.9.9 更新说明
+
+**多台设备共用一个大脑（跨机同步）**
+
+- 新增 `lib/remote-sync.js`：用 GitHub Contents API 读写一个**私有仓库**里的三份数据 —— `brain/memory.json`、`brain/persona.json`、`brain/modules.json`。
+- 冲突处理是「拉下来合并再推」：推送撞车（409/422）会重新拉取合并，最多重试 3 次，不会把别人的改动覆盖掉。
+- 只同步**全局条目**：`scope: 'session'` 的记忆和 `agentive.sessionIds` 这类会话级配置不出本机（换台机器会话 id 就废了）。
+- 删除用**墓碑**：本地少了一条，就记一个删除时间戳推上去；别的机器合并时看到墓碑晚于条目更新时间就把这条丢掉，不会「删了又回来」。墓碑 30 天后自动清理。
+- 人设按 id 并集取新，`bySession` 不上云；模块设置整份按 `updatedAt` 取新。
+- 设置页新增「跨机同步」卡片：仓库（`owner/repo`）、令牌、分支、间隔（分钟）、开关、保存并同步、立即同步，下面显示上次同步时间 / 跟踪条数 / 删除记录 / 本机编号 / 最近摘要或错误。
+- 令牌也可以不放配置里，改用环境变量 `DSH_SHARED_BRAIN_TOKEN`（设置页会显示「来自环境变量」）。
+- 默认关闭；开关打开后每 10 分钟同步一次（可改，最小 1 分钟）。
+
+**怎么用**
+
+1. 在 GitHub 建一个**私有**仓库（只放数据，比如 `your-name/dsh-brain-data`），勾一个 README 让它非空。
+2. 建一个 fine-grained token，只给这个仓库的 **Contents: Read and write**。
+3. 设置页 → 共享大脑 → 跨机同步：填 `owner/repo` 和令牌 → 保存并同步。
+4. 其它机器同样填一遍，就会拉回同一批记忆。
+
+> 注意：数据是**明文**存在私有仓库里的（方便看 diff）。仓库千万别设成公开。
+
+**升级到 0.9.9**
+
+```bash
+pnpm add file:vendor/dsh-shared-brain-0.9.9.tgz
+```
 
 ## 0.9.8 更新说明
 
@@ -296,7 +325,7 @@ DSH 插件 `lib/cross-sync.js` 会监听上述文件；**从 Cursor inbound 拉�
 ### 升级
 
 ```bash
-pnpm add file:vendor/dsh-shared-brain-0.9.8.tgz
+pnpm add file:vendor/dsh-shared-brain-0.9.9.tgz
 ```
 
 装完重启 DSH；设置页是客户端启动时拉取的，重开设置页即可看到新卡片。

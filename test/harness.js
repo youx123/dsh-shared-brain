@@ -471,6 +471,33 @@ console.log('== 命令：人设 / 语音 / 搜索 ==')
   assert(unknown.kind === 'error', '未知参数被拒绝')
 }
 
+console.log('== 0.9.9：跨机同步（配置 / 状态 / 动作）==')
+{
+  const { mutateModules } = await import('../lib/bridge.js')
+  const sync = await import('../lib/remote-sync.js')
+
+  assert(typeof sync.normalizeRepo('https://github.com/a/b.git') === 'string', '仓库地址规整可用')
+  assert(sync.normalizeRepo('https://github.com/a/b.git') === 'a/b', 'https 地址被认出 owner/repo')
+  assert(sync.syncableEntry({ id: 'x', text: '全局', scope: 'global' }) === true, '全局条目可同步')
+  assert(sync.syncableEntry({ id: 'y', text: '会话', scope: 'session' }) === false, '会话条目不跨机')
+
+  const status = sync.remoteSyncStatus()
+  assert(typeof status.enabled === 'boolean', '状态里有开关')
+  assert(typeof status.runtime === 'object', '状态里有运行信息')
+
+  // setRemoteSync 是同步动作：直接拿得到结果，不会返回 Promise
+  const setRes = mutateModules({ action: 'setRemoteSync', enabled: false, repo: '', token: '' })
+  assert(setRes && typeof setRes.then !== 'function', 'setRemoteSync 同步返回，不是 Promise')
+  assert(setRes.ok === true, 'setRemoteSync 成功')
+  assert(typeof setRes.note === 'string' && setRes.note.length > 0, 'setRemoteSync 给了提示文案')
+  assert(setRes.value && setRes.value.remoteSync, '返回里带最新同步状态')
+
+  // syncNow 要等网络，返回 Promise（这里不真的跑，只确认类型）
+  const pending = mutateModules({ action: 'syncNow' })
+  assert(pending && typeof pending.then === 'function', 'syncNow 返回 Promise')
+  pending.then(() => {}).catch(() => {})
+}
+
 console.log('== 0.6：续期 / 冲突 / 作用域 / 时间窗 / 表情 / 按会话人设 ==')
 {
   const { renewEntry } = await import('../lib/store.js')

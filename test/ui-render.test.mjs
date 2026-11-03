@@ -72,6 +72,7 @@ function loadClient() {
       + " emojiCard: typeof EmojiCard === \"function\" ? EmojiCard : null,"
       + " proactiveCard: typeof ProactiveCard === \"function\" ? ProactiveCard : null,"
       + " moodCard: typeof MoodCard === \"function\" ? MoodCard : null,"
+      + " remoteSyncCard: typeof RemoteSyncCard === \"function\" ? RemoteSyncCard : null,"
       + " brainPanel: typeof BrainPanel === \"function\" ? BrainPanel : null"
       + " }; " + marker,
   )
@@ -106,6 +107,33 @@ function renderText(node, depth = 0) {
   }
   if (typeof type === "string") return renderText(props && props.children, depth + 1)
   return ""
+}
+
+function collectInputValues(node, depth = 0, out = []) {
+  if (node === null || node === undefined || node === false || node === true) return out
+  if (depth > 80) return out
+  if (typeof node === "string" || typeof node === "number") return out
+  if (Array.isArray(node)) {
+    for (const item of node) collectInputValues(item, depth + 1, out)
+    return out
+  }
+  if (typeof node === "function") return collectInputValues(node({}), depth + 1, out)
+  const { type, props } = node
+  if (type === FRAGMENT) return collectInputValues(props && props.children, depth + 1, out)
+  if (typeof type === "function") {
+    try {
+      return collectInputValues(type(props), depth + 1, out)
+    } catch {
+      return out
+    }
+  }
+  if (typeof type === "string") {
+    if ((type === "input" || type === "textarea" || type === "select") && props && props.value !== undefined) {
+      out.push(String(props.value))
+    }
+    return collectInputValues(props && props.children, depth + 1, out)
+  }
+  return out
 }
 
 const t = (key) => String(key)
@@ -262,6 +290,66 @@ test("MoodCard 维度都很低时不硬凑（阈值 20）", () => {
   }))
   noRenderError(text)
   ok(!text.includes("moodDims"), "维度都低于阈值时不该显示")
+})
+
+group("跨机同步卡片（0.9.9 新增）")
+
+const syncStatus = {
+  enabled: true,
+  repo: "youx/brain-data",
+  branch: "main",
+  intervalMs: 600000,
+  hasToken: true,
+  deviceId: "host-ab12cd",
+  lastSyncAt: Date.now() - 60_000,
+  trackedEntries: 18,
+  tombstones: 2,
+  lastError: "",
+  runtime: { running: true, busy: false, runs: 3, lastSummary: ["合并后 18 条", "新增 2"] },
+}
+
+test("RemoteSyncCard 渲染不抛错", () => {
+  const text = renderText(cards.remoteSyncCard({ t, busy: false, remoteSync: syncStatus, draft: {} }))
+  noRenderError(text)
+})
+
+test("RemoteSyncCard 有仓库 / 令牌 / 分支 / 间隔四组输入", () => {
+  const text = renderText(cards.remoteSyncCard({ t, busy: false, remoteSync: syncStatus, draft: {} }))
+  ok(text.includes("remoteSyncRepo"), "缺仓库")
+  ok(text.includes("remoteSyncToken"), "缺令牌")
+  ok(text.includes("remoteSyncBranch"), "缺分支")
+  ok(text.includes("remoteSyncInterval"), "缺间隔")
+  const values = collectInputValues(cards.remoteSyncCard({ t, busy: false, remoteSync: syncStatus, draft: {} }))
+  ok(values.includes("youx/brain-data"), "没回填仓库名")
+  ok(values.includes("main"), "没回填分支")
+  ok(values.includes("10"), "间隔没按分钟换算（600000ms 应为 10）")
+})
+
+test("RemoteSyncCard 显示上次同步与条目数", () => {
+  const text = renderText(cards.remoteSyncCard({ t, busy: false, remoteSync: syncStatus, draft: {} }))
+  ok(text.includes("remoteSyncStatus"), "缺上次同步")
+  ok(text.includes("18"), "没显示跟踪条数")
+  ok(text.includes("2"), "没显示删除记录数")
+  ok(text.includes("host-ab12cd"), "没显示本机编号")
+})
+
+test("RemoteSyncCard 没同步过时说「还没同步过」，不显示 1970", () => {
+  const text = renderText(cards.remoteSyncCard({ t, busy: false, remoteSync: { ...syncStatus, lastSyncAt: 0 }, draft: {} }))
+  noRenderError(text)
+  ok(text.includes("remoteSyncNever"), "缺「还没同步过」")
+  ok(!text.includes("1970"), "把 0 当时间渲染成了 1970")
+})
+
+test("RemoteSyncCard 有错误就把错误显示出来", () => {
+  const text = renderText(cards.remoteSyncCard({ t, busy: false, remoteSync: { ...syncStatus, lastError: "仓库不存在或没权限" }, draft: {} }))
+  ok(text.includes("仓库不存在或没权限"), "错误没显示")
+})
+
+test("RemoteSyncCard 编辑中的草稿优先于已保存值", () => {
+  const values = collectInputValues(cards.remoteSyncCard({ t, busy: false, remoteSync: syncStatus, draft: { repo: "new/one", minutes: "15" } }))
+  ok(values.includes("new/one"), "草稿仓库没生效")
+  ok(values.includes("15"), "草稿间隔没生效")
+  ok(!values.includes("youx/brain-data"), "草稿没盖掉已保存值")
 })
 
 group("整体")
