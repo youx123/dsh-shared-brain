@@ -275,6 +275,7 @@ DSH 插件 `lib/cross-sync.js` 会监听上述文件；**从 Cursor inbound 拉�
 - **自动互动「有人味」了**（新增 `lib/proactive-mood.js`）：以前定时器醒来只会说一句固定的「主动检查一下」，像打卡。现在它会看当前心情再决定**说不说、说什么、什么语气**——心情低落时更关心更主动，高涨时分享进展，中性且刚说过就安静；每天说的次数会**按剩余时间摊开**而不是上午用光下午哑火；话题会轮换，不会重复同一句；「还没 / 待办 / 记得」这类线索会优先提醒。设置页「自动互动 · 定时主动」卡片下有「心情驱动」区块可调。
 - **底线不再跟着 Cursor 同步来去**：以前底线是两边双向同步的——在 Cursor 里删了会被同步回 DSH，在 DSH 里删了也被 Cursor 写回来（因为没有「删除标记」，本地那份永远赢）。现在**底线只认 DSH 侧**（设置页添加或 `/shared-memory` 注入），Cursor 侧只读、单向镜像成规则文件。修 `lib/cross-sync.js`：Cursor 记忆规则扫描补齐 `cognition`（以前 `~/.cursor/rules/shared-brain/cognition` 里的文件从来没同步进 DSH），并跳过 `bottomline` / `user`。
 - **目录图谱能展开路径了**（新增 `lib/graph-expand.js`）：召回里带目录图谱路径时，会展开成可读的文件树。
+- **配套 Cursor 扩展 0.4.4**：https://github.com/youx123/cursor-shared-brain/releases/tag/v0.4.4 （底线退出双向同步的那一半在扩展侧）
 - **装一次不再丢补丁**：插件是 pnpm `file:` 依赖（`file:vendor/dsh-shared-brain-0.9.7.tgz`）。以前在 DSH 市场里做任何一次插件操作，都会重放整棵依赖树、把 `node_modules` 里的修改覆盖回官方包——昨天打的补丁当场蒸发。现在官方包本身带了这些修复，并且 `pnpm-lock.yaml` 里的 integrity 跟着包同步。
 
 ## License
