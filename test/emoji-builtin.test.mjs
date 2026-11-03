@@ -4,7 +4,9 @@
  * 覆盖：素材完整性 / 名字解析（含越界）/ URL 与 markdown / 提示词片段 / 静态路由行为。
  * 路由那几条用假的 req/res 直接调 handler，不需要真起 HTTP 服务。
  */
-import { existsSync, readFileSync, statSync } from "node:fs"
+import { existsSync, readFileSync, statSync, mkdtempSync, mkdirSync, rmSync, writeFileSync as wfs } from "node:fs"
+import { tmpdir } from "node:os"
+import { deflateSync } from "node:zlib"
 import { dirname, join } from "node:path"
 import { fileURLToPath } from "node:url"
 import { Writable } from "node:stream"
@@ -14,6 +16,7 @@ const HERE = dirname(fileURLToPath(import.meta.url))
 const LIB = process.env.SB_LIB || join(HERE, "..", "lib")
 
 const B = await import("file:///" + join(LIB, "emoji-builtin.js").replace(/\\/g, "/"))
+const E = await import("file:///" + join(LIB, "emoji.js").replace(/\\/g, "/"))
 
 let passed = 0
 let failed = 0
@@ -241,6 +244,125 @@ await test("emoji.js 状态里带 builtin", () => {
   const s = readFileSync(join(LIB, "emoji.js"), "utf8")
   ok(s.includes("builtinStatus"), "emoji.js 没接 builtinStatus")
 })
+
+/* ------------------------------------------------------------------ */
+/* P1-4 表情包校验（2026-11-03）                                        */
+/* ------------------------------------------------------------------ */
+
+group("表情包校验")
+
+// 造一个最小合法 PNG（真彩色 8bit + deflate + CRC32）
+function crc32(buf) {
+  let c
+  const table = []
+  for (let n = 0; n < 256; n += 1) {
+    c = n
+    for (let k = 0; k < 8; k += 1) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1
+    table[n] = c >>> 0
+  }
+  let crc = 0xffffffff
+  for (let i = 0; i < buf.length; i += 1) crc = table[(crc ^ buf[i]) & 0xff] ^ (crc >>> 8)
+  return (crc ^ 0xffffffff) >>> 0
+}
+function chunk(type, data) {
+  const len = Buffer.alloc(4)
+  len.writeUInt32BE(data.length, 0)
+  const body = Buffer.concat([Buffer.from(type, "ascii"), data])
+  const crc = Buffer.alloc(4)
+  crc.writeUInt32BE(crc32(body), 0)
+  return Buffer.concat([len, body, crc])
+}
+function makePng(width = 8, height = 8) {
+  const ihdr = Buffer.alloc(13)
+  ihdr.writeUInt32BE(width, 0)
+  ihdr.writeUInt32BE(height, 4)
+  ihdr[8] = 8
+  ihdr[9] = 2
+  const raw = Buffer.alloc((width * 3 + 1) * height)
+  for (let y = 0; y < height; y += 1) {
+    raw[y * (width * 3 + 1)] = 0
+  }
+  return Buffer.concat([
+    Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+    chunk("IHDR", ihdr),
+    chunk("IDAT", deflateSync(raw)),
+    chunk("IEND", Buffer.alloc(0)),
+  ])
+}
+
+const PACK_ROOT = mkdtempSync(join(tmpdir(), "sb-pack-"))
+function makePack(id, { keySet = "dsh-emoji-core@1", keys = ["happy", "hug"], bad = null } = {}) {
+  const dir = join(PACK_ROOT, id)
+  mkdirSync(join(dir, "images"), { recursive: true })
+  wfs(join(dir, "pack.json"), JSON.stringify({ schemaVersion: 1, keySet, id, name: id, version: "1.0.0" }))
+  for (const key of keys) {
+    if (bad === "notpng" && key === keys[0]) {
+      wfs(join(dir, "images", `${key}.png`), "这不是 PNG")
+      continue
+    }
+    if (bad === "huge" && key === keys[0]) {
+      wfs(join(dir, "images", `${key}.png`), makePng(2048, 2048))
+      continue
+    }
+    wfs(join(dir, "images", `${key}.png`), makePng())
+  }
+  return dir
+}
+
+await test("合格的包能通过校验", () => {
+  const dir = makePack("good-pack")
+  const manifest = JSON.parse(readFileSync(join(dir, "pack.json"), "utf8"))
+  const checked = E.validateEmojiPack(dir, manifest, ["happy", "hug"])
+  ok(checked.ok, "好包应该通过：" + JSON.stringify(checked.problems))
+  eq(checked.keys.length, 2, "两个 key")
+  eq(checked.problems.length, 0, "没毛病")
+})
+
+await test("keySet 不对 → 不合格并说清原因", () => {
+  const dir = makePack("wrong-keyset", { keySet: "other@9" })
+  const manifest = JSON.parse(readFileSync(join(dir, "pack.json"), "utf8"))
+  const checked = E.validateEmojiPack(dir, manifest, ["happy"])
+  ok(!checked.ok, "keySet 不对就不该通过")
+  ok(checked.problems.some((p) => p.includes("keySet")), "要说明 keySet 不对：" + JSON.stringify(checked.problems))
+})
+
+await test("图不是 PNG → 不合格", () => {
+  const dir = makePack("bad-png", { bad: "notpng" })
+  const manifest = JSON.parse(readFileSync(join(dir, "pack.json"), "utf8"))
+  const checked = E.validateEmojiPack(dir, manifest, ["happy", "hug"])
+  ok(!checked.ok, "坏图不该通过")
+  ok(checked.problems.some((p) => p.includes("PNG")), "要说明不是 PNG：" + JSON.stringify(checked.problems))
+})
+
+await test("图太大 → 不合格", () => {
+  const dir = makePack("huge-png", { bad: "huge" })
+  const manifest = JSON.parse(readFileSync(join(dir, "pack.json"), "utf8"))
+  const checked = E.validateEmojiPack(dir, manifest, ["happy", "hug"])
+  ok(!checked.ok, "超大图不该通过")
+  ok(checked.problems.some((p) => p.includes("尺寸")), "要说明尺寸太大：" + JSON.stringify(checked.problems))
+})
+
+await test("scanEmojiPacks 把坏包踢进 rejected，好包照收", () => {
+  makePack("aa-good")
+  makePack("bb-bad", { bad: "notpng" })
+  const info = E.scanEmojiPacks(PACK_ROOT)
+  const ids = info.packs.map((p) => p.id)
+  ok(ids.includes("aa-good"), "好包要留下")
+  ok(!ids.includes("bb-bad"), "坏包不该被引用")
+  ok(Array.isArray(info.rejected), "rejected 要是数组")
+  ok(info.rejected.some((r) => r.id === "bb-bad"), "坏包要记进 rejected")
+  ok(info.rejected.find((r) => r.id === "bb-bad").problems.length > 0, "要带毛病说明")
+})
+
+await test("状态里带 packsRejected，设置页能显示", () => {
+  const src = readFileSync(join(LIB, "emoji.js"), "utf8")
+  ok(src.includes("packsRejected"), "emojiStatus 少 packsRejected")
+  const cli = readFileSync(join(LIB, "client.js"), "utf8")
+  ok(cli.includes("emojiPacksRejected"), "设置页少不合格包的文案")
+  ok(cli.includes("emoji-rejected-box"), "设置页少不合格包的区块")
+})
+
+rmSync(PACK_ROOT, { recursive: true, force: true })
 
 console.log(`\n${passed} 通过 / ${failed} 失败`)
 if (failed > 0) {

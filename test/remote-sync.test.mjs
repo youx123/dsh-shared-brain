@@ -7,7 +7,7 @@
  *
  * 跑法：node tests/remote-sync.test.mjs
  */
-import { mkdtempSync, rmSync, mkdirSync } from "node:fs"
+import { mkdtempSync, rmSync, mkdirSync, existsSync, writeFileSync, readFileSync as rf, readFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { dirname, join } from "node:path"
 import { fileURLToPath, pathToFileURL } from "node:url"
@@ -51,6 +51,10 @@ async function awaitTest(name, fn) {
 
 function assert(condition, message) {
   if (!condition) throw new Error(message)
+}
+
+function assertOk(value, message) {
+  if (!value) throw new Error(message)
 }
 
 function assertEqual(actual, expected, message) {
@@ -208,32 +212,40 @@ try {
     assertEqual(survived.entries.length, 1, "墓碑早于更新 → 保留")
   })
 
-  test("detectDeletions：本地消失的 id 记墓碑", () => {
+  test("detectDeletions：本地消失的 id 记墓碑（带种类）", () => {
     const tombstones = sync.detectDeletions([entry("keep", "留着的")], ["keep", "gone"], 1234)
-    assertEqual(tombstones.gone, 1234, "消失的记墓碑")
-    assertEqual(tombstones.keep, undefined, "还在的不记")
+    assertEqual(sync.tombstoneAt(tombstones, "gone"), 1234, "消失的记墓碑")
+    assertEqual(sync.tombstoneKind(tombstones, "gone"), "entry", "默认是记忆条目的墓碑")
+    assertEqual(sync.tombstoneAt(tombstones, "keep"), 0, "还在的不记")
+  })
+
+  test("detectDeletions：模块条目的墓碑带 kind='module'", () => {
+    const tombstones = sync.detectDeletions([], ["bl_1"], 4321, "module")
+    assertEqual(sync.tombstoneKind(tombstones, "bl_1"), "module", "是模块条目的墓碑")
+    assertEqual(sync.tombstoneAt(tombstones, "bl_1"), 4321, "时间也记上")
   })
 
   test("pruneTombstones：超过 30 天的墓碑清掉", () => {
     const now = 100 * 24 * 60 * 60 * 1000
     const kept = sync.pruneTombstones({ fresh: now - 1000, stale: now - 31 * 24 * 60 * 60 * 1000 }, now)
-    assertEqual(kept.fresh, now - 1000, "新的留着")
-    assertEqual(kept.stale, undefined, "旧的清掉")
+    assertEqual(sync.tombstoneAt(kept, "fresh"), now - 1000, "新的留着")
+    assertEqual(sync.tombstoneAt(kept, "stale"), 0, "旧的清掉")
   })
 
-  test("mergeTombstones：同 id 取更晚的时间", () => {
+  test("mergeTombstones：同 id 取更晚的时间（兼容旧格式）", () => {
     const merged = sync.mergeTombstones({ a: 10, b: 20 }, { a: 30 })
-    assertEqual(merged.a, 30, "取更晚")
-    assertEqual(merged.b, 20, "另一个保留")
+    assertEqual(sync.tombstoneAt(merged, "a"), 30, "取更晚")
+    assertEqual(sync.tombstoneAt(merged, "b"), 20, "另一个保留")
   })
 
   /* ---------------------------------------------------------------- */
   group("人设与设置")
 
-  test("mergePersona：personas 按 id 并集，bySession 不上云", () => {
+  test("mergePersona：personas 按 id 并集，本机会话映射原样保留", () => {
     const local = {
       version: 1,
       current: "a",
+      currentAt: 2000,
       personas: [{ id: "a", name: "本机", updatedAt: 2000 }],
       bySession: { s1: "a" },
       updatedAt: 2000,
@@ -241,15 +253,83 @@ try {
     const remoteP = {
       version: 1,
       current: "b",
+      currentAt: 1000,
       personas: [{ id: "a", name: "旧", updatedAt: 1000 }, { id: "b", name: "远端", updatedAt: 1500 }],
       bySession: { s2: "b" },
       updatedAt: 1000,
     }
     const merged = sync.mergePersona(local, remoteP)
-    assertEqual(merged.current, "a", "更新的整份赢")
+    assertEqual(merged.current, "a", "人设时间戳更新的赢")
     assertEqual(merged.personas.length, 2, "并集两条")
     assertEqual(merged.personas.find((p) => p.id === "a").name, "本机", "同 id 取新")
-    assertEqual(Object.keys(merged.bySession).length, 0, "会话映射清空")
+    // 2026-11-03（P1-6）：旧实现把 bySession 清空，写回本机时会把所有
+    // 「会话 → 人设」绑定抹掉。会话映射是纯本机的东西，必须原样留着。
+    assertEqual(Object.keys(merged.bySession).length, 1, "本机会话映射要留着")
+    assertEqual(merged.bySession.s1, "a", "本机的绑定不动")
+    assertEqual(Object.keys(merged.bySession).includes("s2"), false, "远端的会话映射不进来")
+  })
+
+  test("mergePersona：current 只听自己的 currentAt，不抢整份时间戳", () => {
+    // 本机：改了一个**别的**人设，整份 updatedAt 顶新了，但 current 没动过
+    const local = {
+      version: 1,
+      current: "a",
+      currentAt: 1000,
+      personas: [{ id: "a", name: "甲", updatedAt: 1000 }, { id: "c", name: "本机新加的", updatedAt: 9000 }],
+      bySession: {},
+      updatedAt: 9000,
+    }
+    // 远端：整份旧，但 current 是刚刚才切换的
+    const remoteP = {
+      version: 1,
+      current: "b",
+      currentAt: 8000,
+      personas: [{ id: "b", name: "乙", updatedAt: 3000 }],
+      bySession: {},
+      updatedAt: 3000,
+    }
+    const merged = sync.mergePersona(local, remoteP)
+    assertEqual(merged.current, "b", "current 该听 currentAt（远端 8000 > 本机 1000）")
+    assertEqual(merged.currentAt, 8000, "currentAt 取较大的")
+    assertEqual(merged.personas.length, 3, "三个人设都在")
+  })
+
+  test("mergePersona：删掉的人设不会因为远端还在而复活", () => {
+    const local = { version: 1, current: "a", currentAt: 1000, personas: [{ id: "a", name: "甲", updatedAt: 1000 }], bySession: {}, updatedAt: 1000 }
+    const remoteP = {
+      version: 1,
+      current: "a",
+      currentAt: 1000,
+      personas: [{ id: "a", name: "甲", updatedAt: 1000 }, { id: "gone", name: "删掉的", updatedAt: 500 }],
+      bySession: {},
+      updatedAt: 1000,
+    }
+    const tombstones = { gone: { at: 2000, kind: "persona" } }
+    const merged = sync.mergePersona(local, remoteP, tombstones)
+    assertEqual(merged.personas.length, 1, "删掉的不能复活")
+    assertEqual(merged.personas.some((p) => p.id === "gone"), false, "墓碑说了算")
+  })
+
+  test("mergePersona：坏条目（没 id / 没 name）丢掉并计数", () => {
+    const local = { version: 1, current: "a", currentAt: 1, personas: [{ id: "a", name: "甲", updatedAt: 1 }], bySession: {}, updatedAt: 1 }
+    const remoteP = {
+      version: 1,
+      current: "a",
+      currentAt: 1,
+      personas: [{ id: "", name: "没 id" }, { id: "x", name: "" }, { id: "b", name: "乙", updatedAt: 2 }],
+      bySession: {},
+      updatedAt: 1,
+    }
+    const merged = sync.mergePersona(local, remoteP)
+    assertEqual(merged.personas.length, 2, "只收 a 和 b")
+    assertEqual(merged.mergeStats.dropped, 2, "两条坏条目被丢")
+  })
+
+  test("mergePersona：current 指向被删掉的人设 → 退回内置兜底", () => {
+    const local = { version: 1, current: "gone", currentAt: 5000, personas: [], bySession: {}, updatedAt: 5000 }
+    const remoteP = { version: 1, current: "a", currentAt: 1, personas: [{ id: "a", name: "甲", updatedAt: 1 }], bySession: {}, updatedAt: 1 }
+    const merged = sync.mergePersona(local, remoteP, { gone: { at: 9000, kind: "persona" } })
+    assertEqual(merged.current, "dafeiyu", "别留一个死 id")
   })
 
   test("sanitizeModules：剥掉会话级条目与会话白名单", () => {
@@ -264,11 +344,62 @@ try {
     assertEqual(clean.agentive.sessionIds.length, 0, "会话白名单清空")
   })
 
-  test("mergeModules：整份按 updatedAt 取新", () => {
+  test("mergeModules：没有条目的模块（network）整块取较新", () => {
     const older = { ...modulesLib.normalizeModules({}), updatedAt: 1000, network: { enabled: false } }
     const newer = { ...modulesLib.normalizeModules({}), updatedAt: 2000, network: { enabled: true } }
     const merged = sync.mergeModules(older, newer)
     assertEqual(merged.network.enabled, true, "取新的那份")
+  })
+
+  test("mergeModules：按条目合并 —— 一边改底线、一边改别的设置，底线不被覆盖", () => {
+    // 这是 0.10.0 修的头号问题：以前是「整份较新者胜」，
+    // 别人动一下任何一项设置，老大那条底线就被整份盖掉。
+    const base = modulesLib.normalizeModules({})
+    base.bottomline.items = [
+      { id: "bl_1", text: "未经同意不删改数据", weight: 0.9, pinned: true, scope: "global", updatedAt: 1000 },
+    ]
+    base.cognition.items = []
+    const local = JSON.parse(JSON.stringify(base))
+    local.updatedAt = 2000
+    // 本机改了「认知」的权重（模块级），没碰底线
+    local.cognition.weight = 0.9
+    local.cognition.updatedAt = 2000
+
+    const remote = JSON.parse(JSON.stringify(base))
+    remote.updatedAt = 3000
+    // 远端改了「网络」开关（模块级），也没碰底线，但整份 updatedAt 更大
+    remote.network.enabled = true
+    remote.network.updatedAt = 3000
+
+    const merged = sync.mergeModules(local, remote)
+    assertEqual(merged.cognition.weight, 0.9, "本机改的认知权重保住了")
+    assertEqual(merged.network.enabled, true, "远端改的网络开关也合上了")
+    const bl = merged.bottomline.items.find((item) => item.id === "bl_1")
+    assert(bl, "底线条目没被弄丢")
+    assertEqual(bl.text, "未经同意不删改数据", "底线原文没被覆盖")
+    assertEqual(bl.pinned, true, "钉住状态还在")
+  })
+
+  test("mergeModuleItems：同 id 取 updatedAt 新的；墓碑能删条目", () => {
+    const local = [{ id: "x", text: "本机新版", updatedAt: 2000 }]
+    const remote = [{ id: "x", text: "远端旧版", updatedAt: 1000 }, { id: "y", text: "远端独有", updatedAt: 1000 }]
+    const merged = sync.mergeModuleItems(local, remote, {})
+    assertEqual(merged.items.length, 2, "两条都在")
+    assertEqual(merged.items.find((i) => i.id === "x").text, "本机新版", "同 id 取新")
+
+    const killed = sync.mergeModuleItems([], remote, { y: { at: 3000, kind: "module" } })
+    assertEqual(killed.items.length, 1, "墓碑删掉一条")
+    assertEqual(killed.deleted, 1, "删除计数")
+  })
+
+  test("collectModuleItemIds：把所有模块里的条目 id 收齐", () => {
+    const mods = modulesLib.normalizeModules({})
+    mods.bottomline.items = [{ id: "bl_1", text: "底线" }]
+    mods.cognition.items = [{ id: "c_1", text: "认知" }, { id: "c_2", text: "认知2" }]
+    const ids = sync.collectModuleItemIds(mods)
+    assertEqual(ids.has("bl_1"), true, "底线条目收进来了")
+    assertEqual(ids.has("c_2"), true, "认知条目收进来了")
+    assertEqual(ids.size, 3, "一共三个")
   })
 
   /* ---------------------------------------------------------------- */
@@ -409,6 +540,54 @@ try {
     assert(pushed && typeof pushed.data.deviceId === "string" && pushed.data.deviceId.length > 0, `deviceId 不该是空的：${JSON.stringify(pushed?.data.deviceId)}`)
   })
 
+  /* ---------------------------------------------------------------- */
+  group("令牌：不落在明文配置里（P0-2）")
+
+  await awaitTest("token 不写进 sync.json，只落在独立的 token 文件", async () => {
+    const home = join(ROOT, "token-store")
+    mkdirSync(home, { recursive: true })
+    useHome(home)
+    sync.writeSyncConfig({ enabled: true, repo: "youx/brain", token: TOKEN })
+    const syncJson = rf(join(home, "storages", "dsh-shared-brain", "sync.json"), "utf8")
+    assert(syncJson.includes(TOKEN) === false, `sync.json 里不该出现明文 token：${syncJson.slice(0, 200)}`)
+    assert(syncJson.includes("\"token\"") === false, "sync.json 连 token 字段都不该有")
+    const tokenFile = join(home, "storages", "dsh-shared-brain", "sync-token.json")
+    assert(existsSync(tokenFile), "token 文件应该存在")
+    assert(rf(tokenFile, "utf8").includes(TOKEN), "token 在独立文件里")
+    // 但功能没坏：还是能读到 token
+    assertEqual(sync.remoteSyncStatus().hasToken, true, "状态里认得出有 token")
+  })
+
+  await awaitTest("老配置里的明文 token 会被自动搬进独立文件并擦掉", async () => {
+    const home = join(ROOT, "token-legacy")
+    mkdirSync(home, { recursive: true })
+    useHome(home)
+    const dir = join(home, "storages", "dsh-shared-brain")
+    mkdirSync(dir, { recursive: true })
+    writeFileSync(join(dir, "sync.json"), JSON.stringify({
+      version: 1, enabled: true, repo: "youx/brain", branch: "main", intervalMs: 600000, token: TOKEN,
+    }, null, 2), "utf8")
+    const status = sync.remoteSyncStatus()
+    assertEqual(status.hasToken, true, "老配置里的 token 认得出来")
+    const after = rf(join(dir, "sync.json"), "utf8")
+    assert(after.includes(TOKEN) === false, `老 token 没被擦掉：${after}`)
+    assert(existsSync(join(dir, "sync-token.json")), "搬到了独立文件")
+  })
+
+  await awaitTest("清空 token 会把独立文件删掉", async () => {
+    const home = join(ROOT, "token-clear")
+    mkdirSync(home, { recursive: true })
+    useHome(home)
+    sync.writeSyncConfig({ enabled: true, repo: "youx/brain", token: TOKEN })
+    const tokenFile = join(home, "storages", "dsh-shared-brain", "sync-token.json")
+    assert(existsSync(tokenFile), "先写进去")
+    // 环境变量里那个先撤掉，不然它会顶替掉文件里的 token
+    process.env.DSH_SHARED_BRAIN_TOKEN = ""
+    sync.writeSyncConfig({ token: "" })
+    assert(existsSync(tokenFile) === false, "清空后文件没了")
+    assertEqual(sync.remoteSyncStatus().hasToken, false, "状态里也没 token 了")
+  })
+
   await awaitTest("没填仓库时给清楚的错误，而不是崩", async () => {
     const home = join(ROOT, "empty")
     mkdirSync(home, { recursive: true })
@@ -421,6 +600,42 @@ try {
 } finally {
   rmSync(ROOT, { recursive: true, force: true })
 }
+
+/* ------------------------------------------------------------------ */
+/* P1-3 跨机同步边界说明（2026-11-03）                                  */
+/* ------------------------------------------------------------------ */
+
+group("跨机同步边界")
+
+test("syncBoundary 讲清楚哪些会上云、哪些只留本机", () => {
+  const b = sync.syncBoundary()
+  assertOk(Array.isArray(b.shared) && b.shared.length > 0, '要列出上云的东西')
+  assertOk(Array.isArray(b.localOnly) && b.localOnly.length > 0, '要列出不上云的东西')
+  const sharedLabels = b.shared.map((x) => x.label).join('|')
+  const localLabels = b.localOnly.map((x) => x.label).join('|')
+  assertOk(sharedLabels.includes('全局记忆条目'), '全局记忆该上云')
+  assertOk(sharedLabels.includes('人设'), '人设该上云')
+  assertOk(sharedLabels.includes('模块设置'), '模块设置该上云')
+  assertOk(localLabels.includes('会话内的记忆'), '会话内记忆不该上云')
+  assertOk(localLabels.includes('访问令牌'), '令牌绝不该上云')
+  assertOk(localLabels.includes('心情状态'), '心情状态不该上云')
+  assertOk(typeof b.note === 'string' && b.note.length > 0, '要说明删除会同步')
+})
+
+test("remoteSyncStatus 里带着边界清单", () => {
+  const st = sync.remoteSyncStatus()
+  assertOk(st.boundary, '状态里要有 boundary')
+  assertOk(Array.isArray(st.boundary.shared), 'boundary.shared 要是数组')
+  assertOk(Array.isArray(st.boundary.localOnly), 'boundary.localOnly 要是数组')
+})
+
+test("设置页把边界清单画出来", () => {
+  const src = readFileSync(join(LIB, 'client.js'), 'utf8')
+  assertOk(src.includes('remoteSyncBoundaryToggle'), '缺边界开关')
+  assertOk(src.includes('remoteSyncShared'), '缺「会同步」文案')
+  assertOk(src.includes('remoteSyncLocal'), '缺「只留本机」文案')
+  assertOk(src.includes('remote-sync-boundary-box'), '缺边界区块')
+})
 
 console.log(`\n${passed} 通过 / ${failed} 失败`)
 process.exit(failed > 0 ? 1 : 0)

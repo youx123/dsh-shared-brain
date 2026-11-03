@@ -7,7 +7,7 @@
  * 跑法：node tests/persona-sync.test.mjs
  */
 
-import { mkdtempSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, mkdirSync, readFileSync, writeFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -368,6 +368,144 @@ test('关掉同步 → 养鱼插件一个字节都不写', () => {
   const result = P.syncPersonaToPlugin({ force: true })
   equal(result.reason, 'disabled')
   equal(readWhaleCfg(), null)
+})
+
+// ─────────────────────────────────────────────────────────────
+group('currentAt：当前人设自己的时间戳（P1-6 加固）')
+// ─────────────────────────────────────────────────────────────
+
+test('切人设会更新 currentAt，并且能读回来', () => {
+  resetAll()
+  seedShared()
+  const before = PERSONA.readPersona().store
+  ok(typeof before.currentAt === 'number', 'currentAt 要是数字')
+  const t0 = before.currentAt
+  const res = PERSONA.selectPersona('custom-1')
+  ok(res.ok, '切换该成功：' + res.note)
+  const after = PERSONA.readPersona().store
+  equal(after.current, 'custom-1')
+  ok(after.currentAt > t0, 'currentAt 该往前走（' + after.currentAt + ' > ' + t0 + '）')
+  ok(after.currentAt >= after.updatedAt - 5, 'currentAt 和 updatedAt 是同一时刻')
+})
+
+test('改别的人设不会顶高 currentAt（这才是跨机打架的根因）', () => {
+  resetAll()
+  seedShared()
+  PERSONA.selectPersona('custom-1')
+  const picked = PERSONA.readPersona().store
+  // 存一个新人设：current 会切到新的，updatedAt 一起变
+  PERSONA.savePersona({ id: 'custom-2', name: '自定义二号', text: '二号正文' })
+  const after = PERSONA.readPersona().store
+  ok(after.currentAt >= picked.currentAt, 'currentAt 单调不回退')
+  // 关键：只改条目、不改 current 时，currentAt 不能动
+  const snapshot = after.currentAt
+  const store = after
+  store.personas = store.personas.map((p) => (p.id === 'custom-2' ? { ...p, text: '改过的正文', updatedAt: Date.now() + 1000 } : p))
+  PERSONA.writePersonaStore(store)
+  const final = PERSONA.readPersona().store
+  equal(final.currentAt, snapshot, 'currentAt 不该被条目的改动顶高')
+  equal(final.current, 'custom-2')
+})
+
+test('currentAt 落盘后不会丢（老文件没有这个字段时退回 0）', () => {
+  resetAll()
+  writeFileSync(
+    SB_FILE,
+    JSON.stringify({ version: 1, current: 'dafeiyu', personas: [], bySession: {}, updatedAt: 1234 }),
+    'utf8',
+  )
+  const old = PERSONA.readPersona().store
+  equal(old.currentAt, 0, '老文件没有 currentAt 就是 0')
+  equal(old.updatedAt, 1234, '整份时间戳照旧读得到')
+})
+
+// ─────────────────────────────────────────────────────────────
+group('养鱼插件配置文件格式探测（P2-4）')
+// ─────────────────────────────────────────────────────────────
+
+test('配置文件不存在 → 探出「没有」，可以放心写', () => {
+  resetAll()
+  // resetAll 会写一个 {} 占位，这里要的是「真的不存在」
+  rmSync(join(SANDBOX, 'bili-whale.config.json'), { force: true })
+  const probe = P.probeWhaleConfig()
+  equal(probe.exists, false)
+  equal(probe.ok, true)
+  equal(probe.reason, 'absent')
+})
+
+test('空文件也当成空配置（首次使用就是这个样子）', () => {
+  resetAll()
+  writeFileSync(join(SANDBOX, 'bili-whale.config.json'), '', 'utf8')
+  const probe = P.probeWhaleConfig()
+  equal(probe.exists, true)
+  equal(probe.ok, true)
+  equal(probe.reason, 'empty')
+})
+
+test('不是 JSON → 探出 not-json，而且一个人设字段都不写', () => {
+  resetAll()
+  seedShared()
+  const file = join(SANDBOX, 'bili-whale.config.json')
+  const broken = '{ 这不是 json,'
+  writeFileSync(file, broken, 'utf8')
+  const probe = P.probeWhaleConfig()
+  equal(probe.ok, false)
+  equal(probe.reason, 'not-json')
+
+  const result = P.syncPersonaToWhale({ force: true })
+  equal(result.configWritable, false, '该报「配置写不了」')
+  equal(result.problem, 'not-json')
+  equal(readFileSync(file, 'utf8'), broken, '坏文件必须一个字节都没动')
+})
+
+test('顶层是数组 → not-object，配置不动', () => {
+  resetAll()
+  seedShared()
+  const file = join(SANDBOX, 'bili-whale.config.json')
+  writeFileSync(file, '[1,2,3]', 'utf8')
+  const probe = P.probeWhaleConfig()
+  equal(probe.ok, false)
+  equal(probe.reason, 'not-object')
+  P.syncPersonaToWhale({ force: true })
+  equal(readFileSync(file, 'utf8'), '[1,2,3]', '一个字都不改')
+})
+
+test('persona 被写成字符串 → persona-not-object，配置不动', () => {
+  resetAll()
+  seedShared()
+  const file = join(SANDBOX, 'bili-whale.config.json')
+  const original = JSON.stringify({ persona: '大肥鱼', other: 42 })
+  writeFileSync(file, original, 'utf8')
+  const probe = P.probeWhaleConfig()
+  equal(probe.ok, false)
+  equal(probe.reason, 'persona-not-object')
+  equal(probe.personaType, 'string')
+  P.syncPersonaToWhale({ force: true })
+  equal(readFileSync(file, 'utf8'), original, '怪结构不碰')
+})
+
+test('配置坏了也照样更新人设正文（那是独立的一份文件）', () => {
+  resetAll()
+  seedShared()
+  writeFileSync(join(SANDBOX, 'bili-whale.config.json'), 'not json at all', 'utf8')
+  const result = P.syncPersonaToWhale({ force: true })
+  equal(result.configWritable, false)
+  const md = readFileSync(join(SANDBOX, '.bili-ai', 'persona.md'), 'utf8')
+  ok(md.includes('大肥鱼'), 'persona.md 该更新：' + md.slice(0, 40))
+})
+
+test('正常配置 → ok，别的字段原样保留', () => {
+  resetAll()
+  seedShared()
+  const file = join(SANDBOX, 'bili-whale.config.json')
+  writeFileSync(file, JSON.stringify({ keepMe: { deep: true }, persona: { ownerTitle: '老大' } }), 'utf8')
+  const probe = P.probeWhaleConfig()
+  equal(probe.ok, true)
+  equal(probe.reason, 'ok')
+  P.syncPersonaToWhale({ force: true })
+  const cfg = JSON.parse(readFileSync(file, 'utf8'))
+  ok(cfg.keepMe && cfg.keepMe.deep === true, '别的设置不能被吃掉')
+  equal(cfg.persona.name, '大肥鱼', '角色名该写进去')
 })
 
 console.log('\n结果：' + passed + ' 通过 / ' + failed + ' 失败')

@@ -41,6 +41,7 @@ const S = await load('store.js')
 const AFF = await load('emoji-affinity.js')
 const EMOJI = await load('emoji.js')
 const MOD = M
+const SUM = await load('summarize.js')
 const T = await load('transcript.js')
 const P = await load('proactive-mood.js')
 const PR = await load('proactive.js')
@@ -507,6 +508,12 @@ test('没装包时扫描结果为空且不报错', () => {
   assert.equal(EMOJI.renderEmojiPacks({ packs: [] }), '')
 })
 
+/** 一张合法的 1×1 PNG（透明）。校验要读魔数和 IHDR，不能用假字节。 */
+const TINY_PNG = Buffer.from(
+  'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==',
+  'base64',
+)
+
 test('认 pack.json + images/<key>.png，坏包跳过', () => {
   const root = join(SANDBOX, 'emoji-packs')
   const good = join(root, 'dafeiyu@1.0.0')
@@ -518,8 +525,10 @@ test('认 pack.json + images/<key>.png，坏包跳过', () => {
     name: '大肥鱼',
     version: '1.0.0',
   }), 'utf8')
-  writeFileSync(join(good, 'images', 'happy.png'), Buffer.from([0x89, 0x50, 0x4e, 0x47]))
-  writeFileSync(join(good, 'images', 'hug.png'), Buffer.from([0x89, 0x50, 0x4e, 0x47]))
+  // 2026-11-03（P1-4）：现在包里的图要过真校验（PNG 魔数 + IHDR 宽高 + 体积），
+  // 光塞 4 个字节的假头会被当成坏图。用一张真的 1×1 PNG。
+  writeFileSync(join(good, 'images', 'happy.png'), TINY_PNG)
+  writeFileSync(join(good, 'images', 'hug.png'), TINY_PNG)
   // 坏包：keySet 不认识
   const bad = join(root, 'bad@0.1.0')
   mkdirSync(join(bad, 'images'), { recursive: true })
@@ -596,6 +605,44 @@ test('client.js 有表情建议的界面与文案', () => {
   assert.ok(src.includes('emoji-packs'), '缺表情包展示')
 })
 
+/* ------------------------------------------------------------------ */
+/* P1-2 记忆噪音过滤（2026-11-03）                                      */
+/* ------------------------------------------------------------------ */
+
+group("记忆噪音过滤")
+
+test("助手的过程播报不入库", () => {
+  for (const text of [
+    "找到关键线索了！事件日志非常清楚…",
+    "先说结论老大：能参考，但参考的价值不在「情感」",
+    "分析已就绪。让我先确认…",
+    "我先去翻翻现场",
+    "让我先看看现在实际状态",
+  ]) {
+    assert.equal(SUM.isWorthRemembering(text), false, "不该记：" + text)
+  }
+})
+
+test("老大的偏好句一定要记（不能被噪音规则误伤）", () => {
+  for (const text of [
+    "老大喜欢简洁的回复，讨厌啰嗦",
+    "以后都用 pnpm，别用 npm",
+    "我讨厌太啰嗦的回答",
+  ]) {
+    assert.equal(SUM.isWorthRemembering(text), true, "该记：" + text)
+  }
+})
+
+test("summarizeTurn 不会把助手的过程播报写进摘要", () => {
+  const r = SUM.summarizeTurn({
+    user: "老大喜欢简洁的回复，讨厌啰嗦",
+    assistant: "找到关键线索了！事件日志非常清楚…",
+  })
+  assert.ok(r, "应该有摘要")
+  assert.equal(r.text.includes("找到关键线索"), false, "摘要里不该有过程播报")
+  assert.equal(r.text.includes("老大喜欢简洁"), true, "老大的话要留着")
+})
+
 // ─────────────────────────────────────────────────────────────
 process.stdout.write(`\n${passed} 通过 / ${failed} 失败\n`)
 if (failed > 0) {
@@ -603,5 +650,7 @@ if (failed > 0) {
     process.stdout.write(`\n--- ${f.name}\n${f.error && f.error.stack ? f.error.stack : f.error}\n`)
   }
 }
-try { rmSync(SANDBOX, { recursive: true, force: true }) } catch { /* 临时目录清不掉就算了 */ }
+try {
+
+rmSync(SANDBOX, { recursive: true, force: true }) } catch { /* 临时目录清不掉就算了 */ }
 process.exit(failed > 0 ? 1 : 0)

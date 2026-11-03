@@ -20,11 +20,14 @@ import { dirname, join } from 'node:path'
 const HERE = dirname(fileURLToPath(import.meta.url))
 const LIB = join(HERE, '..', 'lib')
 
-const E = await import(`file:///${LIB}/emotion.js`)
+const EMO = await import(`file:///${LIB}/emotion.js`)
+const E = EMO
 const C = await import(`file:///${LIB}/classify.js`)
 const M = await import(`file:///${LIB}/modules.js`)
 const W = await import(`file:///${LIB}/weighted-recall.js`)
 const S = await import(`file:///${LIB}/store.js`)
+
+const NOW = Date.now()
 
 let passed = 0
 let failed = 0
@@ -52,6 +55,18 @@ async function atest(name, fn) {
     failures.push({ name, error })
     process.stdout.write(`  FAIL ${name}\n       ${error && error.message ? error.message : error}\n`)
   }
+}
+
+function ok(value, message) {
+  if (!value) throw new Error(message || "期望为真")
+}
+
+function eq(actual, expected, message) {
+  if (actual !== expected) throw new Error(`${message || ""}（期望 ${JSON.stringify(expected)}，实际 ${JSON.stringify(actual)}）`)
+}
+
+function assertEqual(actual, expected, message) {
+  assert.equal(actual, expected, message)
 }
 
 function group(title) {
@@ -505,6 +520,176 @@ test('index.js 导出齐全', () => {
 })
 
 // ───────────────────────────────────────────────────────────────────
+/* ------------------------------------------------------------------ */
+/* 每日判定上限（P0-3，2026-11-03）                                     */
+/* ------------------------------------------------------------------ */
+
+group("心情判定：每日次数上限")
+
+test("MOOD_DEFAULTS 里有 judgePerDay（默认 20 次）", () => {
+  assert.equal(EMO.MOOD_DEFAULTS.judgePerDay, 20, "默认每天判 20 次")
+})
+
+test("normalizeMoodConfig 会夹紧 judgePerDay", () => {
+  assert.equal(EMO.normalizeMoodConfig({ judgePerDay: -5 }).judgePerDay, 0, "负数夹到 0（0 = 不限）")
+  assert.equal(EMO.normalizeMoodConfig({ judgePerDay: 9999 }).judgePerDay, 200, "太大夹到 200")
+  assert.equal(EMO.normalizeMoodConfig({ judgePerDay: 7 }).judgePerDay, 7, "正常的照用")
+})
+
+test("moodJudgeQuota：没超就允许，超了就拦住", () => {
+  const store = { judgeLog: { day: "", count: 0, skipped: 0 } }
+  const q1 = EMO.moodJudgeQuota({ judgePerDay: 3 }, store, NOW)
+  assert.equal(q1.allowed, true, "第一次允许")
+  assert.equal(q1.limit, 3, "上限 3")
+  assert.equal(q1.used, 0, "还没判过")
+  assert.equal(q1.remaining, 3, "还剩 3 次")
+
+  const used = { judgeLog: { day: q1.day, count: 3, skipped: 0 } }
+  const q2 = EMO.moodJudgeQuota({ judgePerDay: 3 }, used, NOW)
+  assert.equal(q2.allowed, false, "用满了就拦住")
+  assert.equal(q2.remaining, 0, "剩 0 次")
+})
+
+test("judgePerDay = 0 表示不限", () => {
+  const used = { judgeLog: { day: "2026-11-03", count: 999, skipped: 0 } }
+  const q = EMO.moodJudgeQuota({ judgePerDay: 0 }, used, NOW)
+  assert.equal(q.limit, 0, "上限 0")
+  assert.equal(q.allowed, true, "不限就永远允许")
+})
+
+test("跨天后计数自动归零", () => {
+  const yesterday = { judgeLog: { day: "2020-01-01", count: 50, skipped: 0 } }
+  const q = EMO.moodJudgeQuota({ judgePerDay: 3 }, yesterday, NOW)
+  assert.equal(q.used, 0, "不是今天的都不算")
+  assert.equal(q.allowed, true, "新的一天重新开始")
+})
+
+test("noteMoodJudge 记一次判定并落盘", () => {
+  const store = EMO.readEmotionStore()
+  const before = EMO.moodJudgeQuota({ judgePerDay: 10 }, store, NOW).used
+  const log = EMO.noteMoodJudge(store, "judged", NOW)
+  assert.equal(log.count, 1, "计数加一")
+  assert.equal(EMO.moodJudgeQuota({ judgePerDay: 10 }, EMO.readEmotionStore(), NOW).used, before + 1, "落盘了")
+})
+
+test("noteMoodJudge 记一次跳过不算进判定次数", () => {
+  const store = EMO.readEmotionStore()
+  EMO.noteMoodJudge(store, "judged", NOW)
+  const after = EMO.noteMoodJudge(store, "skipped", NOW)
+  assert.equal(after.count, 1, "判定次数没变")
+  assert.equal(after.skipped, 1, "跳过单独记")
+})
+
+// ───────────────────────────────────────────────────────────────────
+/* ------------------------------------------------------------------ */
+/* 情感状态上限（P1-1，2026-11-03）                                      */
+/* ------------------------------------------------------------------ */
+
+group("心情状态：只留最近的若干个会话")
+
+test("MOOD_DEFAULTS 有 maxStates（默认 30）", () => {
+  assert.equal(EMO.MOOD_DEFAULTS.maxStates, 30, "默认留 30 个会话")
+})
+
+test("normalizeMoodConfig 夹紧 maxStates", () => {
+  assert.equal(EMO.normalizeMoodConfig({ maxStates: 0 }).maxStates, 1, "0 夹到 1")
+  assert.equal(EMO.normalizeMoodConfig({ maxStates: 99999 }).maxStates, 500, "太大夹到 500")
+  assert.equal(EMO.normalizeMoodConfig({ maxStates: 12 }).maxStates, 12, "正常的照用")
+})
+
+test("pruneMoodStates 淘汰最久没更新的会话", () => {
+  const store = {
+    states: {
+      old: { updatedAt: 100 },
+      mid: { updatedAt: 200 },
+      fresh: { updatedAt: 300 },
+    },
+  }
+  const r = EMO.pruneMoodStates(store, { maxStates: 2 })
+  assert.equal(r.removed.length, 1, "淘汰一个")
+  assert.equal(r.removed[0], "old", "淘汰最旧的")
+  assert.ok(store.states.mid && store.states.fresh, "新的都留着")
+})
+
+test("没超上限就不动", () => {
+  const store = { states: { a: { updatedAt: 1 }, b: { updatedAt: 2 } } }
+  const r = EMO.pruneMoodStates(store, { maxStates: 5 })
+  assert.equal(r.removed.length, 0, "一个都没删")
+  assert.equal(Object.keys(store.states).length, 2, "状态都还在")
+})
+
+test("saveMoodState 写完会按上限淘汰", () => {
+  const store = EMO.readEmotionStore()
+  store.config = { ...store.config, maxStates: 2 }
+  EMO.writeEmotionStore(store)
+  for (let i = 0; i < 5; i += 1) {
+    const st = EMO.emptyMoodState ? EMO.emptyMoodState() : {}
+    st.sessionId = `s${i}`
+    st.updatedAt = 1000 + i
+    EMO.saveMoodState(`s${i}`, st)
+  }
+  const after = EMO.readEmotionStore()
+  assert.ok(Object.keys(after.states).length <= 2, "最多留 2 个，实际 " + Object.keys(after.states).length)
+  assert.ok(after.states.s4, "刚写的那个在")
+})
+
+// ───────────────────────────────────────────────────────────────────
+/* ------------------------------------------------------------------ */
+/* P1-5 「不接话」建模（2026-11-03）                                     */
+/* ------------------------------------------------------------------ */
+
+group("不接话建模")
+
+test("老大敷衍一句 → 判成 silent", () => {
+  for (const reply of ["嗯", "哦", "嗯嗯", "好", "好的", "行", "知道了", "收到", "嗯。", "哦～"]) {
+    const mode = E.replyMoodMode(reply).mode
+    eq(mode, "silent", `「${reply}」该判成不接话`)
+  }
+})
+
+test("老大明确拒绝 → 判成 brisk", () => {
+  eq(E.replyMoodMode("不用了").mode, "brisk", "「不用了」")
+  eq(E.replyMoodMode("别说了").mode, "brisk", "「别说了」")
+  eq(E.replyMoodMode("算了，不聊了").mode, "brisk", "「算了，不聊了」")
+})
+
+test("老大认真说话 → 判成 normal（不能误伤）", () => {
+  eq(E.replyMoodMode("帮我看看这个报错").mode, "normal", "正常请求")
+  eq(E.replyMoodMode("好主意，就这么办").mode, "normal", "「好…」开头也要算正常")
+  eq(E.replyMoodMode("嗯这个方案我觉得可以").mode, "normal", "含敷衍词但有实质内容")
+  eq(E.replyMoodMode("哼！").mode, "normal", "带情绪的回应")
+})
+
+test("老大什么都没回 → silent", () => {
+  eq(E.replyMoodMode("").mode, "silent", "空串")
+  eq(E.replyMoodMode("   ").mode, "silent", "空白")
+})
+
+test("被晾着会记一笔轻微失落", () => {
+  const state = E.emptyMoodState("s1", 1000)
+  const before = state.mood
+  const out = E.applyMoodDelta(state, { moodDelta: 0, dims: {}, reason: "老大没接话", confidence: 60, silence: true }, { now: 1000 })
+  ok(out.silence === true, "要标成沉默轮")
+  eq(state.silentTurns, 1, "累计一次没接话")
+  ok(state.mood < before, "心情该往下走一点")
+  ok(state.mood === before - 1, "只走一点，不该大降")
+  eq(state.timeline[state.timeline.length - 1].kind, "silence", "轨迹里记沉默")
+})
+
+test("正常的一轮不会动 silentTurns", () => {
+  const state = E.emptyMoodState("s1", 1000)
+  E.applyMoodDelta(state, { moodDelta: 2, dims: { happy: 5 }, reason: "有进展", confidence: 80 }, { now: 1000 })
+  eq(state.silentTurns, 0, "不该算没接话")
+})
+
+test("parseMoodDelta 认得 silence 标记", () => {
+  const d = E.parseMoodDelta('{"moodDelta":-2,"dims":{"worry":3},"reason":"被晾着","confidence":70,"silence":true}')
+  ok(d !== null, "要能解析")
+  eq(d.silence, true, "silence 标记要读出来")
+  const d2 = E.parseMoodDelta('{"moodDelta":1,"dims":{},"reason":"","confidence":70}')
+  ok(d2.silence !== true, "没标就是没标")
+})
+
 process.stdout.write(`\n结果：${passed} 通过 / ${failed} 失败\n`)
 if (failed > 0) {
   process.stdout.write('\n失败明细：\n')
@@ -512,5 +697,6 @@ if (failed > 0) {
     process.stdout.write(`  · ${f.name}\n    ${f.error && f.error.stack ? f.error.stack.split('\n').slice(0, 4).join('\n    ') : f.error}\n`)
   }
 }
+
 rmSync(SANDBOX, { recursive: true, force: true })
 process.exit(failed > 0 ? 1 : 0)
