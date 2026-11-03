@@ -90,10 +90,10 @@ https://github.com/youx123/dsh-shared-brain/releases/download/v0.9.8/dsh-shared-
 
 ### 方式二：命令行装 Release 里的 tgz
 
-到 [Releases](https://github.com/youx123/dsh-shared-brain/releases) 下载 `dsh-shared-brain-0.9.6.tgz`，然后：
+到 [Releases](https://github.com/youx123/dsh-shared-brain/releases) 下载 `dsh-shared-brain-0.9.8.tgz`，然后：
 
 ```bash
-dsh plugin --profile <你的 profile> add ./dsh-shared-brain-0.9.6.tgz
+dsh plugin --profile <你的 profile> add ./dsh-shared-brain-0.9.8.tgz
 ```
 
 ### 方式三：直接装 git 源
@@ -107,11 +107,11 @@ dsh plugin --profile <你的 profile> add git+https://github.com/youx123/dsh-sha
 ```bash
 git clone https://github.com/youx123/dsh-shared-brain.git
 cd dsh-shared-brain
-npm pack                       # 产出 dsh-shared-brain-0.9.6.tgz
-dsh plugin --profile <你的 profile> add ./dsh-shared-brain-0.9.6.tgz
+npm pack                       # 产出 dsh-shared-brain-0.9.8.tgz
+dsh plugin --profile <你的 profile> add ./dsh-shared-brain-0.9.8.tgz
 ```
 
-> 本插件是纯 JS，装完不需要构建；`files` 只发布 `lib/`、`cordis.patch.yml`、`README.md`、`LICENSE`。
+> 本插件是纯 JS，装完不需要构建；`files` 发布 `lib/`、`assets/`、`cordis.patch.yml`、`README.md`、`LICENSE`（`assets/emoji/` 是内置表情包，少了它表情功能不可用）。
 > 装完打开设置页能看到新的「共享大脑」一节，说明宿主已经加载到它了。
 
 ## 在哪里调
