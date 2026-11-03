@@ -80,7 +80,7 @@ https://github.com/youx123/dsh-shared-brain
 ```
 
 ```
-https://github.com/youx123/dsh-shared-brain/releases/download/v0.9.9/dsh-shared-brain-0.9.9.tgz
+https://github.com/youx123/dsh-shared-brain/releases/download/v0.9.12/dsh-shared-brain-0.9.12.tgz
 ```
 
 3. 装完在插件列表里确认 `dsh-shared-brain` 在启用状态，重启 DSH
@@ -90,10 +90,10 @@ https://github.com/youx123/dsh-shared-brain/releases/download/v0.9.9/dsh-shared-
 
 ### 方式二：命令行装 Release 里的 tgz
 
-到 [Releases](https://github.com/youx123/dsh-shared-brain/releases) 下载 `dsh-shared-brain-0.9.9.tgz`，然后：
+到 [Releases](https://github.com/youx123/dsh-shared-brain/releases) 下载 `dsh-shared-brain-0.9.12.tgz`，然后：
 
 ```bash
-dsh plugin --profile <你的 profile> add ./dsh-shared-brain-0.9.9.tgz
+dsh plugin --profile <你的 profile> add ./dsh-shared-brain-0.9.12.tgz
 ```
 
 ### 方式三：直接装 git 源
@@ -107,8 +107,8 @@ dsh plugin --profile <你的 profile> add git+https://github.com/youx123/dsh-sha
 ```bash
 git clone https://github.com/youx123/dsh-shared-brain.git
 cd dsh-shared-brain
-npm pack                       # 产出 dsh-shared-brain-0.9.9.tgz
-dsh plugin --profile <你的 profile> add ./dsh-shared-brain-0.9.9.tgz
+npm pack                       # 产出 dsh-shared-brain-0.9.12.tgz
+dsh plugin --profile <你的 profile> add ./dsh-shared-brain-0.9.12.tgz
 ```
 
 > 本插件是纯 JS，装完不需要构建；`files` 发布 `lib/`、`assets/`、`cordis.patch.yml`、`README.md`、`LICENSE`（`assets/emoji/` 是内置表情包，少了它表情功能不可用）。
@@ -273,6 +273,16 @@ DSH 插件 `lib/cross-sync.js` 会监听上述文件；**从 Cursor inbound 拉�
 - **人设列表不再重名两份**（0.9.6 修复）：内置人设被改过之后会另存一份同 id 的自定义副本，以前列表把两份都列出来，设置页里会出现两个「大肥鱼」；现在同一个 id 只出现一次（自定义覆盖内置）。
 - **外部工具写进来的东西也会被洗**（0.9.6 修复）：脱敏不只管插件自己的写入路径。Cursor「共享大脑」扩展、别的工具、甚至有人手工改 `memory.json` / `modules.json`，都可能把凭据写进去。现在**读库时也过一遍闸门**——不管这份记忆是谁写进来的，正文和标签里的密钥都会被换成 `[已脱敏]` 并写回磁盘。
 
+## 0.9.10 更新说明
+
+- **修掉设置页「跨机同步」卡片的三个显示问题**：
+  - 「保存并同步」「立即同步」两个按钮之前**没有按钮文字**（只渲染出两个空框，根本不知道该点哪个）
+  - 开关按钮同样是空框，现在直接显示「已开启 / 已关闭」
+  - 动作行原来复用了三列网格样式，四个控件被挤到第二行；改成可换行的弹性行
+- 分支 / 间隔那一行改成专门的字段布局，不再被挤到下一行
+- 保存按钮改成实心主按钮，一眼能看出是主操作；同步中会显示「同步中…」
+
+> 升级：见文末「0.9.12 更新说明」里的安装命令。
 ## 0.9.9 更新说明
 
 **多台设备共用一个大脑（跨机同步）**
@@ -298,7 +308,7 @@ DSH 插件 `lib/cross-sync.js` 会监听上述文件；**从 Cursor inbound 拉�
 **升级到 0.9.9**
 
 ```bash
-pnpm add file:vendor/dsh-shared-brain-0.9.9.tgz
+pnpm add file:vendor/dsh-shared-brain-0.9.12.tgz
 ```
 
 ## 0.9.8 更新说明
@@ -325,10 +335,30 @@ pnpm add file:vendor/dsh-shared-brain-0.9.9.tgz
 ### 升级
 
 ```bash
-pnpm add file:vendor/dsh-shared-brain-0.9.9.tgz
+pnpm add file:vendor/dsh-shared-brain-0.9.12.tgz
 ```
 
 装完重启 DSH；设置页是客户端启动时拉取的，重开设置页即可看到新卡片。
+
+
+## 0.9.12 更新说明
+
+### 人设同步：共享大脑 → 养鱼插件（新）
+
+在共享大脑里切人设、改正文，`dsh-persona-dafeiyu`（养鱼那个人设插件）跟着变，不用两边各配一遍。
+
+- 共享大脑人设库里的每一条，会以 `sb-` 前缀镜像进养鱼插件；插件里当前生效的人设也跟着指过去
+- 共享大脑里删掉的人设，镜像条目一并清掉
+- 养鱼插件里**你自己导的**人设（不叫 `sb-` 开头的）一律不碰，工作目录绑定也不动
+- 只有共享大脑的人设库真的变了才写盘 —— 你在养鱼插件里手动换人设，不会被 15 秒一次的同步拉回去
+- 设置页 → 共享大脑 → 人设卡片，多了一行「养鱼插件同步」：开关 + 立即同步 + 已镜像几条
+
+注意：共享大脑是唯一权威源。内置的「大肥鱼 / 阿茶 / 听澜」正文以共享大脑里那份为准（比养鱼插件自带的短），
+想用长版本就在共享大脑里编辑人设正文。
+
+```bash
+pnpm add file:vendor/dsh-shared-brain-0.9.12.tgz
+```
 
 ## License
 

@@ -73,6 +73,7 @@ function loadClient() {
       + " proactiveCard: typeof ProactiveCard === \"function\" ? ProactiveCard : null,"
       + " moodCard: typeof MoodCard === \"function\" ? MoodCard : null,"
       + " remoteSyncCard: typeof RemoteSyncCard === \"function\" ? RemoteSyncCard : null,"
+      + " personaCard: typeof PersonaCard === \"function\" ? PersonaCard : null,"
       + " brainPanel: typeof BrainPanel === \"function\" ? BrainPanel : null"
       + " }; " + marker,
   )
@@ -325,6 +326,16 @@ test("RemoteSyncCard 有仓库 / 令牌 / 分支 / 间隔四组输入", () => {
   ok(values.includes("10"), "间隔没按分钟换算（600000ms 应为 10）")
 })
 
+test("RemoteSyncCard 的保存 / 立即同步按钮有文案（空白按钮会点不到）", () => {
+  const zh = { remoteSyncSave: "保存并同步", remoteSyncNow: "立即同步", remoteSyncOn: "已开启", remoteSyncOff: "已关闭" }
+  const tZh = (key) => (zh[key] !== undefined ? zh[key] : key)
+  const text = renderText(cards.remoteSyncCard({ t: tZh, busy: false, remoteSync: syncStatus, draft: {} }))
+  noRenderError(text)
+  ok(text.includes("保存并同步"), "保存按钮没有文案")
+  ok(text.includes("立即同步"), "立即同步按钮没有文案")
+  ok(text.includes("已开启"), "开关按钮没有文案")
+})
+
 test("RemoteSyncCard 显示上次同步与条目数", () => {
   const text = renderText(cards.remoteSyncCard({ t, busy: false, remoteSync: syncStatus, draft: {} }))
   ok(text.includes("remoteSyncStatus"), "缺上次同步")
@@ -358,6 +369,62 @@ test("client.js 内部组件都还在", () => {
   ok(cards.proactiveCard, "ProactiveCard 不见了")
   ok(cards.moodCard, "MoodCard 不见了")
   ok(cards.brainPanel, "BrainPanel 不见了")
+})
+
+test("PersonaCard 有养鱼插件同步那一行（开关 + 立即同步 + 说明）", () => {
+  const zh = { personaSyncTitle: "养鱼插件同步", personaSyncOn: "已同步", personaSyncOff: "未同步", personaSyncNow: "立即同步", personaSyncHint: "已镜像 {n} 条，当前指向 {current}" }
+  const tZh = (key) => (zh[key] !== undefined ? zh[key] : key)
+  const text = renderText(cards.personaCard({
+    t: tZh,
+    busy: false,
+    persona: { list: [], current: "dafeiyu" },
+    personaSync: { enabled: true, mirrored: 4, pluginCurrent: "sb-dafeiyu" },
+  }))
+  noRenderError(text)
+  ok(text.includes("养鱼插件同步"), "缺标题")
+  ok(text.includes("已同步"), "开关文案没出")
+  ok(text.includes("立即同步"), "立即同步按钮没文案")
+  ok(text.includes("4"), "镜像条数没填")
+  ok(text.includes("sb-dafeiyu"), "当前指向没填")
+})
+
+test("PersonaCard 同步关掉时开关显示未同步", () => {
+  const zh = { personaSyncOn: "已同步", personaSyncOff: "未同步" }
+  const tZh = (key) => (zh[key] !== undefined ? zh[key] : key)
+  const text = renderText(cards.personaCard({ t: tZh, busy: false, persona: { list: [] }, personaSync: { enabled: false, mirrored: 0 } }))
+  noRenderError(text)
+  ok(text.includes("未同步"), "关掉时开关文案不对")
+})
+
+group("人设卡片 · 养鱼插件（dsh-bili-whale）")
+test("PersonaCard 显示养鱼插件的角色名 / 称呼 / 保存按钮", () => {
+  const zh = {
+    personaSyncTitle: "养鱼插件同步",
+    personaSyncOn: "已同步",
+    personaSyncOff: "未同步",
+    personaSyncNow: "立即同步",
+    personaSyncSave: "保存并同步",
+    personaSyncWhaleName: "养鱼角色名",
+    personaSyncWhaleOwner: "她怎么称呼你",
+    personaSyncWhaleNameEmpty: "（来自共享大脑人设名）",
+    personaSyncWhaleOwnerHint: "例如「主人」",
+    personaSyncHint: "dsh-bili-whale 的角色名 {name} · 自称 {self} · 人设 {bytes} 字",
+  }
+  const tZh = (key) => (zh[key] !== undefined ? zh[key] : key)
+  const text = renderText(
+    cards.personaCard({
+      t: tZh,
+      busy: false,
+      persona: { list: [], current: "dafeiyu" },
+      personaSync: { enabled: true, mirrored: 3, pluginCurrent: "sb-dafeiyu", whale: { name: "大肥鱼", ownerTitle: "主人", selfClaim: "本鱼", personaBytes: 183 } },
+    }),
+  )
+  ok(text.includes("养鱼角色名"), "没有养鱼角色名这一栏")
+  ok(text.includes("大肥鱼"), "角色名没显示出来")
+  ok(text.includes("她怎么称呼你"), "没有称呼这一栏")
+  ok(text.includes("保存并同步"), "没有保存并同步按钮")
+  ok(text.includes("本鱼") && text.includes("183"), "状态行没显示自称 / 字数")
+  ok(!text.includes("{name}") && !text.includes("{bytes}"), "占位符没被替换")
 })
 
 console.log(`\n${passed} 通过 / ${failed} 失败`)

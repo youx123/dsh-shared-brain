@@ -1374,3 +1374,119 @@ const FAKE_OPENAI_ASSIGN = 'api_key = "' + 'sk-' + 'abcdefghijklmnopqrstuvwxyz12
 - **两台机器同时同步**（真并发 409）：只在单测里人为造过一次 409 重试，真并发没试
 - **大库**：63 条数据量很小，几千条时的 Contents API 体积与 rate limit 没实测
 - 客户端设置页「跨机同步」卡片在真浏览器里的样子（本会话起不了浏览器 daemon）
+## 2026-11-03 补充 15：0.9.10 —— 跨机同步卡片按钮是空框
+
+### 现象（老大截图，m05658/m05659）
+设置页「跨机同步」卡片字段都在，但**没有「保存并同步」按钮**；只有开关行下面两个看不清的小空框，布局也挤成一团。
+
+### 根因（两个，叠在一起）
+1. **按钮没有文字**：`lib/client.js` 里保存 / 立即同步两个 `<button>` 只写了 `{ type, style, disabled, onClick }`，**漏了 `children`**；开关按钮也只有 `title` 没有 `children`。React 渲染出的是三个空按钮 —— 看得见框、点得到，但不知道是什么。
+2. **动作行复用了三列网格**：`styles.moduleRow` 是 `grid-template-columns: minmax(72px,auto) minmax(0,1fr) auto`。动作行塞了 4 个控件（开关 / 状态文字 / 保存 / 立即同步），第 4 个被挤到第二行第一列 —— 截图里那个孤立的小框就是「立即同步」。分支 / 间隔那一行也是同样问题（5 个控件塞 3 列）。
+
+### 改动（只动 `lib/client.js`）
+- 三个按钮补 `children`：开关显示「已开启 / 已关闭」，保存显示「保存并同步」，立即同步显示「立即同步」
+- 新增 `styles.actionRow`（`display:flex; flexWrap:wrap; gap:10px`）给动作行，删掉重复的状态文字 span
+- 新增 `styles.syncFieldRow`（`auto / minmax(88px,150px) / auto / minmax(72px,110px) / auto` 五列）给分支 + 间隔行
+- 新增 `styles.buttonPrimary`（实心主色）给保存按钮，主操作一眼可见
+- 同步中显示「同步中…」（新增 i18n 键 `remoteSyncBusy`，中英各一）
+
+### 治本：给这类 bug 加断言
+`tests/ui-render.test.mjs` 原来用「`t` 直接回显 key」的假翻译，**空按钮和正常按钮的差别根本测不出来**。新增一条用例换成假翻译映射中文，断言三段文字都在：
+```js
+const tZh = (key) => (zh[key] !== undefined ? zh[key] : key)
+ok(text.includes("保存并同步"), "保存按钮没有文案")
+ok(text.includes("立即同步"), "立即同步按钮没有文案")
+ok(text.includes("已开启"), "开关按钮没有文案")
+```
+`ui-render.test.mjs` 20 → **21 通过 / 0 失败**。
+
+### 打包与验证（0.9.10）
+- 版本 0.9.9 → 0.9.10（安装目录 `package.json`），仓库与补丁源同步
+- `vendor/dsh-shared-brain-0.9.10.tgz` = **3723830 字节 / 133 文件**（26 lib + 4 元文件 + 103 assets）
+- integrity `sha512-+WC8ImXMAQsJd5m4zttafrHkCrFz1HyGHqcSrhOrSIQH5w2GRSh9iIulXxrtGHKcKgYEWzXyOEwfKN9ZPOP4Ig==`
+- `pnpm-lock.yaml`：依赖路径 3 处 + `dsh-shared-brain@file:` 段 integrity 精确替换（旧 `sha512-Gpsqc3gr…` 残留 0 次；`@antfu/install-pkg` 那条复核完好）；备份 `*.bak-b0910-*`
+- 隔离目录 pnpm 11.28.5 安装 → `+ dsh-shared-brain 0.9.10`；从装好的包里逐项复核：两个按钮都有 children、开关有文案、`actionRow`/`syncFieldRow`/`buttonPrimary` 三个样式在、中英 `remoteSyncBusy` 在、103 个素材在
+- 全量回归（补丁源侧 + 仓库侧）：ui-render **21** / audit-fixes 47 / remote-sync 20 / emoji-builtin 27 / proactive-mood 41 / emotion 47 / `test/harness.js` 全过
+
+### 未验证
+- 真客户端里按钮的视觉效果（本鱼看不到客户端渲染，只能靠迷你渲染器验文案与结构）—— 需要老大重开设置页确认
+- 0.9.10 尚未发布到 GitHub（等老大发话）
+
+## 2026-11-03 补充 16：0.9.11 —— 人设同步（共享大脑 → 养鱼插件）
+
+### 老大原话
+
+> 我需要你将共享大脑的人设这些设置注入到养鱼这个插件对应的配置并保持同步
+
+### 做法（单向镜像，共享大脑是唯一权威）
+
+- 新增 `lib/persona-sync.js`（19 个导出）：`MIRROR_PREFIX`、`PERSONA_SYNC_INTERVAL_MS`(15s)、`pluginPersonaFile()`、`personaSyncFile()`、`readPluginStore()`、`writePluginStore()`、`mirrorId()`、`sharedPersonaSnapshot()`、`snapshotHash()`、`syncPersonaToPlugin()`、`readPersonaSyncConfig()`、`applyPersonaSync()`、`personaSyncStatus()`、`startPersonaSync()`、`stopPersonaSync()`
+- 目标文件 `$DSH_HOME/storages/dsh-persona-dafeiyu/personas.json`；状态文件 `$DSH_HOME/storages/dsh-shared-brain/persona-sync.json`
+- 每条共享大脑人设镜像成 `sb-<id>` 条目（含 name / text / createdAt）；`current` 指向 `sb-<当前人设>`；删掉的清掉
+- **用户自己导入的人设（非 `sb-` 开头）与 `workspaces` / `mode` / `disabled` 其它字段一律不碰**
+- **指纹机制**：`snapshotHash()` 只在共享大脑人设库真的变了才写盘 → 用户在养鱼插件里手动换人设不会被覆盖
+- 内置三条（大肥鱼 / 阿茶 / 听澜）即使共享大脑库里没有条目也会补上（用 BUNDLED 正文）
+
+### 接线
+
+- `lib/index.js`：import `startPersonaSync/stopPersonaSync`；`startRemoteSync` 之后启动，`ctx.effect` 清理
+- `lib/bridge.js`：`snapshotOf` 加 `personaSync: personaSyncStatus()`；新 action `setPersonaSync { enabled }` 与 `syncPersonaNow {}`
+- `lib/client.js`：`PersonaCard` 尾部加一行「养鱼插件同步」—— 标题 + 开关（已同步 / 未同步）+ 立即同步按钮 + 说明（已镜像 N 条，当前指向 X）；中英各 5 个 i18n 键；主组件两个处理器 `onPersonaSync` / `onPersonaSyncNow`
+
+### 验证
+
+- 新建 `tests/persona-sync.test.mjs`：**18 通过 / 0 失败**（镜像 / 跟随当前 / 不碰外来条目 / 指纹 no-op / 改正文重写 / 删除清理 / 手动选择不被拉回 / 开关 / 状态字段 / 内置兜底 / id 规整 / 看门狗）
+- `tests/ui-render.test.mjs` 加 2 条（同步行有文案与数字、关掉显示未同步）→ **23 通过 / 0 失败**
+- 全量回归：audit-fixes 47 / proactive-mood 41 / emotion 47 / emoji-builtin 27 / remote-sync 20 / persona-sync 18 / ui-render 23 / `test/harness.js` 全部通过
+- 真机跑一次：养鱼插件库从「0 条导入」变成 3 条镜像，`current: sb-dafeiyu`；原文件备份 `personas.json.bak-before-persona-sync-20261103-153637`
+- 打包 `vendor/dsh-shared-brain-0.9.11.tgz` = **3728107 字节 / 134 文件**，integrity `sha512-neGMYY4DNRsMTBKwNXVmLpfiV4zh0FS9cYgPgtPwNExYUoBGedcp5dsJDBSOdP7w72fh79NHBbka61p8I/zFuw==`；pnpm 11.28.5 隔离目录安装复核 27 lib / 103 assets / 组件接线全中
+
+### 没验证的
+
+- 真宿主里 15 秒看门狗的实际运行（本鱼只在 node 里直接调过 `syncPersonaToPlugin` / `startPersonaSync`）
+- 养鱼插件设置页里看到 `sb-` 人设的显示效果（它自己是渲染别人写的库条目，理论没问题）
+- 两台机器同时开人设同步（共享大脑那侧有跨机同步，养鱼插件那侧各自镜像，冲突场景没测）
+
+## 2026-11-03 补充 17：0.9.12 —— 人设同步接上「养鱼」插件（dsh-bili-whale）
+
+### 起因
+老大附图：设置 → 养鱼，角色名 / 人设正文全空，共享大脑里也没有对应按钮。
+User said (m05988): 「养鱼这里没有显示，同时共享大脑那里也没有对应的按钮这些」
+
+### 根因
+0.9.11 同步的是 dsh-persona-dafeiyu 的人设库，但老大说的「养鱼」是 dsh-bili-whale（v0.4.6）。
+它的配置在 ~/.dsh/bili-whale.config.json（persona.name / ownerTitle / selfClaim），人设正文在 ~/.bili-ai/persona.md（上限 20000 字、注入取前 3000 字）。本机这两个文件都不存在，所以页面全空。
+
+### 改动（lib/persona-sync.js）
+- 新增 whaleConfigFile() / whalePersonaFile() / readWhaleConfig() / readWhalePersona() / currentPersonaRow() / selfClaimOf()
+- 新增 syncPersonaToWhale(options) → 写配置的 persona.name/ownerTitle/selfClaim + persona.md 正文；其它配置项一字不动
+- 新增 inspectWhale()（dryRun）；syncPersonaToPlugin 返回值加 whale，hash 升到 v2（拼上 selfClaim）
+- readPersonaSyncConfig 带 ownerTitle；applyPersonaSync 支持 patch.ownerTitle（trim + 24 字上限）
+- 修：syncPersonaToPlugin 写状态时整体覆盖 persona-sync.json，会把 ownerTitle 抹掉 → 改成 { ...state, ... }
+- 修：ownerTitle 变化没算进 changed → 改了等于没改；现在 titleChanged 参与 changed/reason
+
+### 改动（lib/client.js）
+- 人设卡片新增 persona-whale-row：养鱼角色名（只读）+ 她怎么称呼你（可改）+ 保存并同步按钮
+- personaSyncHint 改成写明两个插件各自的状态（镜像 N 条 / 角色名 X · 自称 Y · 人设 Z 字）
+- onPersonaSync 支持对象参数（{ enabled, ownerTitle }）
+
+### 真实写入验证
+apply: {changed:true, reason:changed, name:大肥鱼, ownerTitle:主人, selfClaim:本鱼, personaBytes:183}
+~/.dsh/bili-whale.config.json = {"persona":{"name":"大肥鱼","ownerTitle":"主人","selfClaim":"本鱼"}}
+~/.bili-ai/persona.md = 183 字节当前人设正文
+
+### 测试
+- tests/persona-sync.test.mjs 加 5 条养鱼用例（首次写 / 别的配置不碰 / unchanged 不重复写 / 换人设跟着换 / 关掉不写）→ 23 通过
+- tests/ui-render.test.mjs 加 1 条（角色名 / 称呼 / 保存按钮 / 状态行占位替换）→ 24 通过
+- 全量：persona-sync 23 / ui-render 24 / remote-sync 20 / audit-fixes 47 / emoji-builtin 27 / proactive-mood 41 / emotion 47 / harness 全过
+
+### 打包
+- vendor/dsh-shared-brain-0.9.12.tgz = 3730492 字节 / 134 文件
+- integrity sha512-riPQGi3ax2i3HR+BN6Ymy4EWLpBVyo7KfagwhF+m9y7N546sc8kk6keTEjhKKcHg24UsDHsnoxXfF/OmdNqoNw==
+- profile package.json → file:vendor/dsh-shared-brain-0.9.12.tgz；pnpm-lock 路径 5 处 + dsh-shared-brain 段 integrity/version（顺带把陈旧的 version: 0.9.8 改成 0.9.12）
+- 隔离目录实装 0.9.12：27 lib / 103 assets / 从装好的包跑 persona-sync 23 通过
+
+### 未验证
+- 宿主加载 0.9.12 后设置页的实际渲染（需老大重启 + 重开设置页）
+- 养鱼插件自己读到新的 config/persona.md 后的表现（需看它的页面 / 实际唤醒一次）
+- 15 秒看门狗在真宿主里的长期行为
