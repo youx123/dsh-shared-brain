@@ -361,11 +361,17 @@ test('mode=off 什么都不说', () => {
   assert.equal(text, '')
 })
 
-test('一次变化只说一次（injectedFor===updatedAt）', () => {
-  const now = Date.now()
-  const state = makeState({ updatedAt: now, injectedFor: now })
-  const text = E.renderMoodContext(state, { mode: 'event' })
-  assert.equal(text, '')
+test('一次变化只说一次（按 revision，不按 updatedAt）', () => {
+  // P1-10：以前比 injectedFor === updatedAt，但 updatedAt 每次写状态都会变
+  // （minor 分支、decay 都更新它），标记永远追不上 → 同一件事被说第二遍。
+  // 现在比只增不减的 revision。
+  const state = makeState({ revision: 7, injectedFor: 7 })
+  assert.equal(E.renderMoodContext(state, { mode: 'event' }), '')
+})
+
+test('revision 推进后可以再说一次', () => {
+  const state = makeState({ revision: 8, injectedFor: 7 })
+  assert.ok(E.renderMoodContext(state, { mode: 'event' }).length > 0, 'revision 变了就该再说')
 })
 
 test('小波动只记账不打扰', () => {

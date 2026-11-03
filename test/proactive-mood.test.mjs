@@ -429,13 +429,24 @@ test('rememberTopic 只保留最近 12 个', () => {
   assert.equal(used[used.length - 1], 't19')
 })
 
-test('话题库不为空且每条都有文本与语气', () => {
+test('话题库每条只给意图和素材，不再给成品台词', () => {
   assert.ok(PM.TOPIC_LIBRARY.length >= 8, `话题太少：${PM.TOPIC_LIBRARY.length}`)
   for (const topic of PM.TOPIC_LIBRARY) {
     assert.ok(topic.key, '缺 key')
-    assert.ok(topic.text, `话题 ${topic.key} 缺文本`)
     assert.ok(topic.tone, `话题 ${topic.key} 缺语气`)
+    // P1-8：以前这里是写死的整句台词，模型直接照抄 → 每次主动搭话都一模一样。
+    // 现在只有 intent（想干什么）和 hint（素材），台词交给模型自己组织。
+    assert.ok(topic.intent, `话题 ${topic.key} 缺 intent`)
+    assert.ok(!topic.text, `话题 ${topic.key} 不该再有成品台词`)
   }
+})
+
+test('renderTopic 给的是方向不是台词', () => {
+  const topic = PM.TOPIC_LIBRARY[0]
+  const line = PM.renderTopic(topic)
+  assert.ok(line.includes('这次想聊的'), line)
+  assert.ok(line.includes(topic.intent), line)
+  assert.equal(PM.renderTopic(null), '')
 })
 
 // ───────────────────────────────────────────────────────────────────

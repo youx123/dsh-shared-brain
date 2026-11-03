@@ -943,14 +943,17 @@ console.log('== 底线：条数上限别把低权重底线截掉 ==')
   const FAKE_PAT = 'gh' + 'p_TESTfakePATforunittestonly00000'
   const FAKE_FINE_PAT = 'github_pat' + '_11ABCDEFG0abcdefghijklmnopqrstuvwxyz'
   const FAKE_PAT_BODY = FAKE_PAT.slice('ghp_'.length)
+  // 假 sk- 密钥同样拼装：GitHub secret scanning 也认 sk- 前缀的连续字面量。
+  const FAKE_ANTHROPIC = 'sk-' + 'ant-api03-' + 'abcdefghijklmnopqrstuvwxyz123456'
+  const FAKE_OPENAI_ASSIGN = 'api_key = "' + 'sk-' + 'abcdefghijklmnopqrstuvwxyz12345"'
 
   // GitHub PAT
   assert(hasSecret(FAKE_PAT), 'GitHub PAT 能被识别')
   assert(!redactSecrets(FAKE_PAT).includes(FAKE_PAT_BODY), 'PAT 被替换掉了')
   assert(hasSecret(FAKE_FINE_PAT), 'fine-grained PAT 能被识别')
-  assert(hasSecret('sk-ant-api03-abcdefghijklmnopqrstuvwxyz123456'), 'Anthropic key 能被识别')
+  assert(hasSecret(FAKE_ANTHROPIC), 'Anthropic key 能被识别')
   assert(hasSecret('AKIAIOSFODNN7EXAMPLE'), 'AWS key 能被识别')
-  assert(hasSecret('api_key = "sk-abcdefghijklmnopqrstuvwxyz12345"'), '赋值形式的 key 能被识别')
+  assert(hasSecret(FAKE_OPENAI_ASSIGN), '赋值形式的 key 能被识别')
   assert(hasSecret('token: abcdef1234567890abcdef'), 'token: 形式能被识别')
   assert(!hasSecret('这句话里没有密钥'), '普通文本不误报')
 

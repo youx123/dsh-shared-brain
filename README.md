@@ -80,7 +80,7 @@ https://github.com/youx123/dsh-shared-brain
 ```
 
 ```
-https://github.com/youx123/dsh-shared-brain/releases/download/v0.9.7/dsh-shared-brain-0.9.7.tgz
+https://github.com/youx123/dsh-shared-brain/releases/download/v0.9.8/dsh-shared-brain-0.9.8.tgz
 ```
 
 3. 装完在插件列表里确认 `dsh-shared-brain` 在启用状态，重启 DSH
@@ -90,10 +90,10 @@ https://github.com/youx123/dsh-shared-brain/releases/download/v0.9.7/dsh-shared-
 
 ### 方式二：命令行装 Release 里的 tgz
 
-到 [Releases](https://github.com/youx123/dsh-shared-brain/releases) 下载 `dsh-shared-brain-0.9.7.tgz`，然后：
+到 [Releases](https://github.com/youx123/dsh-shared-brain/releases) 下载 `dsh-shared-brain-0.9.6.tgz`，然后：
 
 ```bash
-dsh plugin --profile <你的 profile> add ./dsh-shared-brain-0.9.7.tgz
+dsh plugin --profile <你的 profile> add ./dsh-shared-brain-0.9.6.tgz
 ```
 
 ### 方式三：直接装 git 源
@@ -107,8 +107,8 @@ dsh plugin --profile <你的 profile> add git+https://github.com/youx123/dsh-sha
 ```bash
 git clone https://github.com/youx123/dsh-shared-brain.git
 cd dsh-shared-brain
-npm pack                       # 产出 dsh-shared-brain-0.9.7.tgz
-dsh plugin --profile <你的 profile> add ./dsh-shared-brain-0.9.7.tgz
+npm pack                       # 产出 dsh-shared-brain-0.9.6.tgz
+dsh plugin --profile <你的 profile> add ./dsh-shared-brain-0.9.6.tgz
 ```
 
 > 本插件是纯 JS，装完不需要构建；`files` 只发布 `lib/`、`cordis.patch.yml`、`README.md`、`LICENSE`。
@@ -260,6 +260,9 @@ DSH 插件 `lib/cross-sync.js` 会监听上述文件；**从 Cursor inbound 拉�
 - **语音参数不会被念出来**：音色、语速、音调、音量、唱法是给将来的语音 / 唱歌模块准备的物理参数，只做记录，不进对话文本。
 - **会话列表是怎么来的**：宿主里没在 `inject` 里声明的服务只能靠 `ctx.get()` 拿——所以插件用 `ctx.get('sessions')`、`ctx.get('sessionPersistence')`、`ctx.get('workspaceRegistry')` 三份数据合成会话目录，后台刷新 + 读缓存（3 秒节流），不会卡住设置页。
 - **表情从目录里来，而且是定时自己加载的**：默认目录 `~/.dsh/storages/dsh-shared-brain/emoji`（插件启动时会建出来），也可以指向任意目录；`.txt` 一行一个表情（或「名字: 表情」），图片表情（`.png` / `.gif` / `.webp` …）的文件名就是情绪名。默认每 5 分钟自动扫一次，往目录里丢文件就行，不用在面板里一个个加；自动加载可以关，关掉后只在点「立即重扫」时更新。
+- **按心情挑表情**（0.9.8 新增）：心情上下文里会附一句「这会儿适合哪几个表情」，低落时**不会**让你甩「庆祝」，高涨时才推荐活泼的。开关和频率在设置页的表情卡片里（不提 / 少量 / 多一点）。
+- **自带一套表情，不用另装插件**（0.9.8 新增）：插件内置**大肥鱼表情包 100 张 GIF**（`assets/emoji/`），并把其中 40 张按 `dsh-emoji-core@1` 语义 key 对好号（开心 / 抱抱 / 好累 / 恭喜 …）。提示词里直接给**现成的 markdown 图片**，模型照抄就能出图，不需要装 `dsh-emoji`。想换包也可以把符合该协议的包放进 `~/.dsh/emoji-packs/`，插件只读不写。
+- **内置表情的许可要留意**：那 100 张 GIF 来自 [ai-biaoqingbao](https://github.com/diwer/ai-biaoqingbao)，是 **CC BY-NC-SA 4.0（署名 · 非商业 · 相同方式共享）**，和本仓库代码的 MIT **不是**同一个许可；商用请自行取得授权，细节见 `assets/emoji/NOTICE.txt`。
 - **密钥不会进记忆库**（0.9.6 新增）：记忆是**长期**存储的，还会被召回进提示词，所以入库前一律脱敏——GitHub PAT（`ghp_` / `github_pat_`）、OpenAI / Anthropic key、Slack / AWS / Google key、`api_key = "..."` 这类赋值形式、带密码的连接串，全都会换成 `[已脱敏]`。手动从设置页或 `/shared-memory add` 加的条目也一样会被洗一遍。
 - **老库里残留的密钥会被清掉**（0.9.6 新增）：脱敏是 0.9.6 才加的，之前入库的条目可能已经含有凭据。插件在每次召回时会顺手把正文和**标签**里的密钥洗一遍（标签容易漏——摘要时英文 token 会被当成检索标签）。
 - **废话不入库**（0.9.6 新增）：以前只要「用户问 + 助手答」凑够 12 个字就记，结果库里堆满了「继续 → Excellent!」「ok → 好的」这种对话快照，召回时会召出一堆噪音。现在只有**有信息量**的对话才入库：够长、含决策 / 偏好信号（记住 / 以后都 / 改成 / 不要 / 默认 …）、或者带路径 / 版本 / 命令 / 报错。纯寒暄和纯选项应答（「选 2 吧」）直接跳过。
@@ -269,15 +272,40 @@ DSH 插件 `lib/cross-sync.js` 会监听上述文件；**从 Cursor inbound 拉�
 - **人设列表不再重名两份**（0.9.6 修复）：内置人设被改过之后会另存一份同 id 的自定义副本，以前列表把两份都列出来，设置页里会出现两个「大肥鱼」；现在同一个 id 只出现一次（自定义覆盖内置）。
 - **外部工具写进来的东西也会被洗**（0.9.6 修复）：脱敏不只管插件自己的写入路径。Cursor「共享大脑」扩展、别的工具、甚至有人手工改 `memory.json` / `modules.json`，都可能把凭据写进去。现在**读库时也过一遍闸门**——不管这份记忆是谁写进来的，正文和标签里的密钥都会被换成 `[已脱敏]` 并写回磁盘。
 
-## 0.9.7 更新说明
+## 0.9.8 更新说明
 
-- **有了「情感」模块**：新增 `lib/emotion.js`。每轮对话结束后会判定一次心情，记在 `~/.dsh/storages/dsh-shared-brain/emotion.json` 里（七根情绪维度：开心 / 踏实 / 甜蜜 / 心疼 / 担心 / 难过 / 吃醋），带基线、衰减和事件注入。可以在设置页或用 `/shared-memory mood` 开关。
-- **自动互动「有人味」了**（新增 `lib/proactive-mood.js`）：以前定时器醒来只会说一句固定的「主动检查一下」，像打卡。现在它会看当前心情再决定**说不说、说什么、什么语气**——心情低落时更关心更主动，高涨时分享进展，中性且刚说过就安静；每天说的次数会**按剩余时间摊开**而不是上午用光下午哑火；话题会轮换，不会重复同一句；「还没 / 待办 / 记得」这类线索会优先提醒。设置页「自动互动 · 定时主动」卡片下有「心情驱动」区块可调。
-- **底线不再跟着 Cursor 同步来去**：以前底线是两边双向同步的——在 Cursor 里删了会被同步回 DSH，在 DSH 里删了也被 Cursor 写回来（因为没有「删除标记」，本地那份永远赢）。现在**底线只认 DSH 侧**（设置页添加或 `/shared-memory` 注入），Cursor 侧只读、单向镜像成规则文件。修 `lib/cross-sync.js`：Cursor 记忆规则扫描补齐 `cognition`（以前 `~/.cursor/rules/shared-brain/cognition` 里的文件从来没同步进 DSH），并跳过 `bottomline` / `user`。
-- **目录图谱能展开路径了**（新增 `lib/graph-expand.js`）：召回里带目录图谱路径时，会展开成可读的文件树。
-- **配套 Cursor 扩展 0.4.4**：https://github.com/youx123/cursor-shared-brain/releases/tag/v0.4.4 （底线退出双向同步的那一半在扩展侧）
-- **装一次不再丢补丁**：插件是 pnpm `file:` 依赖（`file:vendor/dsh-shared-brain-0.9.7.tgz`）。以前在 DSH 市场里做任何一次插件操作，都会重放整棵依赖树、把 `node_modules` 里的修改覆盖回官方包——昨天打的补丁当场蒸发。现在官方包本身带了这些修复，并且 `pnpm-lock.yaml` 里的 integrity 跟着包同步。
+### 修掉的真 bug
+
+- **`/shared-memory` 状态页一直显示「0 个会话有心情记录」**：代码读的是 `store.sessions`，心情实际存在 `store.states`。
+- **「假待办」**：主动搭话前会扫记忆找待办，以前只按关键词匹配正文，于是助手自己的工作日志（`source: auto`，正文里带「待办」「继续」）也被当成你交代的事，还排在心情与每日额度之前。现在只认 `source: manual` —— 你亲口说的才算。
+- **同一批记忆一轮注入两遍**：系统提示词段落与 `agent/pre-step` 各召回一次。现在按「会话 + 目录 + 提问」缓存，只算一次。
+- **会话结束不清心情**：`agent/disposed` 现在会清掉该会话的心情状态，避免会话 id 复用时带着上一个会话的情绪。
+- **「一次变化只说一次」失效**：以前靠 `injectedFor === updatedAt` 判断，但任何写入都会改 `updatedAt`。改用单调递增的 `revision`。
+- **自动互动的间隔系数被最悲观的会话绑架**：`intervalFactor` 从共享变量改成按会话记，取本轮参与者的最小值。
+- **「按心情说话」关掉后连心情都不读了**：关开关只表示「别用心情决定语气」，数据照读。
+- **话题复读**：主动搭话的话题库以前是写死的整句，模型会原样照抄。现在只给「这次想聊什么」的方向 + 素材提示，并明确要求别重复上一次。
+- **`instinct` 模块永远是空的**：以前「同一主题重复出现」几乎不可能命中（标签是路径碎片）。新增话题键抽取（关键词 + 汉字二元组兜底），同一件事说三次会升到 `instinct`（权重 1.8）。
+- **设置页心情卡片信息太少**：现在显示情绪维度、判定理由、最近轨迹。
+
+### 表情能力
+
+- **按心情挑表情**：低落时避开 `celebrate / cheer / applause / sarcastic`，高涨时才推荐 `star-eyes / celebrate / playful`；开关与频率（不提 / 少量 / 多一点）在设置页表情卡片。
+- **内置大肥鱼表情包**：100 张 GIF 随插件发布，40 张按 `dsh-emoji-core@1` 语义 key 映射；心情上下文直接给**现成的 markdown 图片**，不用装 `dsh-emoji` 也能出图。静态路由 `GET /api/dsh-shared-brain/emoji/<key>.gif`（只允许本机回环）。
+- **兼容 `dsh-emoji` 表情包**：放在 `~/.dsh/emoji-packs/` 里、符合 `pack.json` + `images/<key>.png` 的包会被识别并列出（只读，不写用户的包）。
+
+### 升级
+
+```bash
+pnpm add file:vendor/dsh-shared-brain-0.9.8.tgz
+```
+
+装完重启 DSH；设置页是客户端启动时拉取的，重开设置页即可看到新卡片。
 
 ## License
 
-MIT
+代码：MIT。
+
+`assets/emoji/` 下的表情素材来自 [diwer/ai-biaoqingbao](https://github.com/diwer/ai-biaoqingbao)，
+采用 **CC BY-NC-SA 4.0**（署名 · 非商业性使用 · 相同方式共享），**不属于** MIT 授权范围。
+署名：基础角色 上善无形；二次设计 ZipZipPipe；本套整理 ming。完整声明见 `assets/emoji/NOTICE.txt`。
+如果你要商用，请先取得素材权利人的授权，或者删掉 `assets/emoji/` 只用代码。
