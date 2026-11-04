@@ -57,6 +57,12 @@ function assertOk(value, message) {
   if (!value) throw new Error(message)
 }
 
+function assertJsonEqual(actual, expected, message) {
+  const a = JSON.stringify(actual)
+  const b = JSON.stringify(expected)
+  if (a !== b) throw new Error(`${message}（期望 ${b}，实际 ${a}）`)
+}
+
 function assertEqual(actual, expected, message) {
   if (actual !== expected) throw new Error(`${message}（期望 ${JSON.stringify(expected)}，实际 ${JSON.stringify(actual)}）`)
 }
@@ -653,6 +659,27 @@ test("设置页把边界清单画出来", () => {
   assertOk(src.includes('remoteSyncShared'), '缺「会同步」文案')
   assertOk(src.includes('remoteSyncLocal'), '缺「只留本机」文案')
   assertOk(src.includes('remote-sync-boundary-box'), '缺边界区块')
+})
+
+test('restoreLocalAgentive：本机勾选的会话同步后还在（以前每同步一次就被清）', () => {
+  // mergeModules 返回的是推送形状（sessionIds 被清空），
+  // 直接写回本地就等于每次同步都把「限定自动互动到指定会话」清一遍。
+  const local = { agentive: { enabled: true, scope: 'session', sessionIds: ['session-abc', 'session-def'] } }
+  const merged = { version: 1, agentive: { enabled: true, scope: 'session', sessionIds: [], mergeStats: { added: 1 } } }
+  const next = sync.restoreLocalAgentive(merged, local)
+  assertJsonEqual(next.agentive.sessionIds, ['session-abc', 'session-def'], '勾选的会话要留住')
+  assertEqual(next.agentive.scope, 'session', 'scope 也要留住')
+})
+
+test('restoreLocalAgentive：剥掉 mergeStats（诊断字段不能落盘、更不能上云）', () => {
+  const next = sync.restoreLocalAgentive({ agentive: {}, mergeStats: { added: 2 } }, { agentive: { scope: 'all' } })
+  assertEqual(next.mergeStats, undefined, 'mergeStats 要剥掉')
+})
+
+test('restoreLocalAgentive：本机没勾会话时不会被塞进脏值', () => {
+  const next = sync.restoreLocalAgentive({ agentive: {} }, { agentive: { scope: 'weird', sessionIds: ['', '  ', 42] } })
+  assertEqual(next.agentive.scope, 'all', '非法 scope 退回 all')
+  assertJsonEqual(next.agentive.sessionIds, [], '空串 / 非字符串都滤掉')
 })
 
 console.log(`\n${passed} 通过 / ${failed} 失败`)

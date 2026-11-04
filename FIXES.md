@@ -19,6 +19,49 @@
 
 > 早期小节（2026-10-29 ~ 11-02，补充 1–9）已归档到 [docs/FIXES-archive.md](docs/FIXES-archive.md)。
 
+## 2026-11-04 补充 20：0.10.2 —— 勾选的会话不再被同步清掉 + 开关文案
+
+老大反馈两句：「自动互动勾选了会话总是自己取消」，「点击按钮这些需要明显的提示开启或者关闭的信息」。
+前一个是真 bug（每 10 分钟丢一次配置），后一个是真看不出来。
+
+### 一、勾选的会话每同步一次就被清空
+
+**根因**：`mergeModules` 返回前无条件 `sanitizeModules(out)`，把 `agentive.sessionIds` 清空。
+这本身没错 —— 会话 id 是本机的东西，不该推上云。错在 `syncOnce` 把这个**推送形状**直接
+`writeModulesSynced()` 写回了本地：每同步一次（默认 10 分钟）就把用户勾的会话清一遍。
+
+人设那边早踩过同一个坑（`mergePersona` 返回体去掉 `bySession`，落地时再补回来），模块这边漏了。
+
+**改法**：
+- 新增导出 `restoreLocalAgentive(merged, local)`（`lib/remote-sync.js`）：把 `scope` / `sessionIds`
+  从本机读到的值盖回去；`scope` 不是 `'session'` 一律退回 `'all'`，`sessionIds` 过滤非字符串与空串。
+  同时剥掉 `mergeStats`（诊断字段既不能落盘也不能上云，否则统计一变就多一个 commit）。
+- `syncOnce`：推远端用 `modulesPushShape`（干净形状），写本地用
+  `restoreLocalAgentive(modulesPushShape, localModules)`。
+- 回归 3 条（`tests/remote-sync.test.mjs` 38 通过）：勾选的会话同步后还在 / `mergeStats` 被剥掉 /
+  本机没勾时不会被塞脏值。
+
+### 二、开关看不出是开还是关
+
+原来按钮文字只有「启用 / 停用」—— 它描述的是**状态**还是**动作**，全靠猜；点完也不知道生效没有。
+
+**改法**（`lib/client.js`，五个真开关统一：模块卡片、能力卡片、心情驱动、语义表情、唱歌）：
+- 按钮文字 = 状态：**`● 已开启` / `○ 已关闭`**（实心圆 / 空心圆，不靠颜色也能分）；
+- `title` = 动作：`点此关闭` / `点此开启`（悬停也能看到）；
+- 关闭态改成虚线描边 + 透明底 + 透明度 0.75，跟开启态的实心填色一眼分开；
+- 加 `aria-pressed`，读屏也能读出状态；
+- 能力卡片标题旁加汇总「已开启 N / M」。
+
+回归 6 条（`tests/ui-render.test.mjs` 30 通过）：两种状态的文案与圆点 / 不再出现「启用」「停用」/
+汇总数字对得上 / `title` 写的是动作 / `aria-pressed` 正确 / 两个都开时 2 / 2。
+
+### 三、合计
+
+**371 通过 / 0 失败**（emotion 66 / audit-fixes 50 / audit-0101 37 / proactive-mood 52 / remote-sync 38 /
+persona-sync 33 / ui-render 30 / emoji-builtin 33 / perf 24 / tools 7 / harness）。
+
+---
+
 ## 2026-11-04 补充 19：0.10.1 —— 审计发现的 30 处问题全修
 
 0.10.0 发出去之后做了一轮专项审计（安全 / 情感与自主意识 / 性能与注入体积，三路并行）。
@@ -179,6 +222,8 @@ PERF-2 6 条（命中返回深拷贝 / 改文件失效 / 写完清缓存 / modul
 PERF-3 4 条（与 `scoreEntry` 逐条等价 / 子串命中 / 改条目失效 / 标签权重）、PERF-4 3 条、PERF-5 4 条、PERF-6 2 条。
 
 合计：**362 通过 / 0 失败**（emotion 66 / audit-fixes 50 / audit-0101 37 / proactive-mood 52 / remote-sync 35 / persona-sync 33 / ui-render 24 / emoji-builtin 33 / perf 24 / tools 7 / harness）。
+
+> 后续（0.10.2）补了两处修复，见下一节；合计升到 **371 通过**（remote-sync 38 / ui-render 30）。
 
 ---
 

@@ -337,6 +337,12 @@ DSH 插件 `lib/cross-sync.js` 会监听上述文件；**从 Cursor inbound 拉�
 新增 `tests/audit-0101.test.mjs`（37 条）+ `tests/perf.test.mjs`（24 条），每条对应一个审计里实测复现过的现象。
 更新了 2 条「测的是旧 bug」的断言。合计 **362 通过 / 0 失败**。
 
+### 0.10.2
+
+- **勾选的会话不再被同步清掉**：`mergeModules` 返回的「推送形状」会被写回本地，而它已经把 `agentive.sessionIds` 清空了 —— 每同步一次（10 分钟）就丢一次用户勾的会话。现在推远端用干净形状，写本地用 `restoreLocalAgentive()` 把 `scope` / `sessionIds` 盖回去。
+- **开关能一眼看出开还是关**：五个真开关的按钮统一成 `● 已开启` / `○ 已关闭`，`title` 写清「点此关闭 / 点此开启」，关闭态改虚线描边，并加 `aria-pressed`；能力卡片标题旁加「已开启 N / M」汇总。
+- 测试合计 **371 通过 / 0 失败**（remote-sync 38 / ui-render 30）。
+
 ---
 
 ## 0.10.0 更新说明

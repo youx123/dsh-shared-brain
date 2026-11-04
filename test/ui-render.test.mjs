@@ -74,6 +74,7 @@ function loadClient() {
       + " moodCard: typeof MoodCard === \"function\" ? MoodCard : null,"
       + " remoteSyncCard: typeof RemoteSyncCard === \"function\" ? RemoteSyncCard : null,"
       + " personaCard: typeof PersonaCard === \"function\" ? PersonaCard : null,"
+      + " capabilityCard: typeof CapabilityCard === \"function\" ? CapabilityCard : null,"
       + " brainPanel: typeof BrainPanel === \"function\" ? BrainPanel : null"
       + " }; " + marker,
   )
@@ -425,6 +426,82 @@ test("PersonaCard 显示养鱼插件的角色名 / 称呼 / 保存按钮", () =>
   ok(text.includes("保存并同步"), "没有保存并同步按钮")
   ok(text.includes("本鱼") && text.includes("183"), "状态行没显示自称 / 字数")
   ok(!text.includes("{name}") && !text.includes("{bytes}"), "占位符没被替换")
+})
+
+
+/* ------------------------------------------------------------------ */
+/* 开关文案：按钮上必须能直接读出「开」还是「关」                        */
+/* ------------------------------------------------------------------ */
+
+const cards2 = loadClient()
+const tZh = (key) => ({
+  capTitle: "能力开关",
+  capSummary: "已开启",
+  enabled: "已开启",
+  disabled: "已关闭",
+  enabledLabel: "点此关闭",
+  disabledLabel: "点此开启",
+  network: "网络",
+  networkNote: "允许取外部信息",
+  agentive: "自动互动",
+  agentiveNote: "没事找你说两句",
+}[key] ?? key)
+
+function capCard(modules) {
+  return cards2.capabilityCard({ t: tZh, busy: false, modules, onToggle: () => {} })
+}
+
+function buttonsOf(node) {
+  const out = []
+  const walk = (n) => {
+    if (!n || typeof n !== "object") return
+    if (Array.isArray(n)) return n.forEach(walk)
+    if (n.type === "button") out.push(n.props)
+    if (n.props && n.props.children !== undefined) {
+      const kids = n.props.children
+      if (Array.isArray(kids)) kids.forEach(walk)
+      else walk(kids)
+    }
+  }
+  walk(node)
+  return out
+}
+
+group("开关文案（必须有明显的开 / 关信息）")
+
+test("开启态按钮写着「● 已开启」，关闭态写着「○ 已关闭」", () => {
+  const text = renderText(capCard({ network: { enabled: true }, agentive: { enabled: false } }))
+  ok(text.includes("● 已开启"), "开启态按钮上有实心圆 + 已开启")
+  ok(text.includes("○ 已关闭"), "关闭态按钮上有空心圆 + 已关闭")
+})
+
+test("不再出现「启用 / 停用」这种状态动作两可的词", () => {
+  const text = renderText(capCard({ network: { enabled: true }, agentive: { enabled: false } }))
+  ok(!text.includes("启用"), "不该出现「启用」")
+  ok(!text.includes("停用"), "不该出现「停用」")
+})
+
+test("卡片标题旁有汇总「已开启 N / M」", () => {
+  const text = renderText(capCard({ network: { enabled: true }, agentive: { enabled: false } }))
+  ok(text.includes("已开启 1 / 2"), "汇总应为 已开启 1 / 2，实际：" + text.slice(0, 80))
+})
+
+test("按钮 title 写的是动作（点此关闭 / 点此开启），不重复状态", () => {
+  const buttons = buttonsOf(capCard({ network: { enabled: true }, agentive: { enabled: false } }))
+  ok(buttons.length === 2, "两张能力卡片各一个按钮，实际 " + buttons.length)
+  ok(buttons[0].title === "点此关闭", "开启态 title 应为「点此关闭」，实际 " + buttons[0].title)
+  ok(buttons[1].title === "点此开启", "关闭态 title 应为「点此开启」，实际 " + buttons[1].title)
+})
+
+test("按钮带 aria-pressed，读屏也能知道开关状态", () => {
+  const buttons = buttonsOf(capCard({ network: { enabled: true }, agentive: { enabled: false } }))
+  ok(buttons[0]["aria-pressed"] === "true", "开启态 aria-pressed 应为 true")
+  ok(buttons[1]["aria-pressed"] === "false", "关闭态 aria-pressed 应为 false")
+})
+
+test("两个都开时汇总显示 2 / 2", () => {
+  const text = renderText(capCard({ network: { enabled: true }, agentive: { enabled: true } }))
+  ok(text.includes("已开启 2 / 2"), "汇总应为 已开启 2 / 2")
 })
 
 console.log(`\n${passed} 通过 / ${failed} 失败`)
