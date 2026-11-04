@@ -548,6 +548,82 @@ test('待办不突破每日上限：额度用完照样闭嘴', () => {
   assert.equal(decision.reason, 'daily-limit')
 })
 
+
+const PX = await import(`file:///${LIB}/proactive.js`)
+
+// ─────────────────────────────────────────────────────────────
+console.log('== 续接轮次接线 ==')
+// ─────────────────────────────────────────────────────────────
+
+test('continueReasonOf：认得 HTML 注释形态的续接标记', () => {
+  const text = '先把 A 做完。\n<!-- 继续：把测试跑完 -->'
+  assert.equal(PX.continueReasonOf(text), '把测试跑完')
+})
+
+test('continueReasonOf：也认纯文本兜底形态', () => {
+  assert.equal(PX.continueReasonOf('中间一句\n[[继续: 补文档]]'), '补文档')
+})
+
+test('continueReasonOf：正文中间提到「继续」不算信号', () => {
+  assert.equal(PX.continueReasonOf('我继续看了一下代码，没问题。'), '')
+  assert.equal(PX.continueReasonOf(''), '')
+  assert.equal(PX.continueReasonOf(null), '')
+})
+
+test('continueReasonOf：标记在该看的位置之外就不认（只看末尾 400 字）', () => {
+  const text = '<!-- 继续：很早以前 -->' + '填充'.repeat(400) + '\n收尾'
+  assert.equal(PX.continueReasonOf(text), '')
+})
+
+test('shouldContinueTurn：没理由不续、超过 3 轮不续', () => {
+  const agentive = { enabled: true, scope: 'all', sessionIds: [], timeWindow: { enabled: false } }
+  PX.resetContinueRound('s-cont')
+  assert.equal(PX.shouldContinueTurn('s-cont', agentive, ''), false, '没理由不续')
+  assert.equal(PX.shouldContinueTurn('s-cont', agentive, '一'), true)
+  assert.equal(PX.shouldContinueTurn('s-cont', agentive, '二'), true)
+  assert.equal(PX.shouldContinueTurn('s-cont', agentive, '三'), true)
+  assert.equal(PX.shouldContinueTurn('s-cont', agentive, '四'), false, '第 4 轮该停')
+  assert.equal(PX.roundOf('s-cont'), 3)
+})
+
+test('resetContinueRound：老大说话后轮次清零（不然一个会话续满 3 轮就永远死了）', () => {
+  const agentive = { enabled: true, scope: 'all', sessionIds: [], timeWindow: { enabled: false } }
+  PX.resetContinueRound('s-reset')
+  for (let i = 0; i < 3; i++) PX.shouldContinueTurn('s-reset', agentive, '第 ' + i)
+  assert.equal(PX.roundOf('s-reset'), 3)
+  PX.resetContinueRound('s-reset')
+  assert.equal(PX.roundOf('s-reset'), 0)
+  assert.equal(PX.shouldContinueTurn('s-reset', agentive, '重新开始'), true)
+})
+
+test('shouldContinueTurn：不在作用范围的会话不续', () => {
+  const agentive = { enabled: true, scope: 'session', sessionIds: ['only-this'], timeWindow: { enabled: false } }
+  PX.resetContinueRound('other')
+  assert.equal(PX.shouldContinueTurn('other', agentive, '想做点啥'), false)
+})
+
+test('agentive 默认带 selfContinue，只有写 false 才关', () => {
+  const on = M.normalizeModules({ agentive: { enabled: true } })
+  assert.equal(on.agentive.selfContinue, true, '默认开')
+  const off = M.normalizeModules({ agentive: { enabled: true, selfContinue: false } })
+  assert.equal(off.agentive.selfContinue, false, '写 false 就关')
+  const junk = M.normalizeModules({ agentive: { enabled: true, selfContinue: 'nope' } })
+  assert.equal(junk.agentive.selfContinue, true, '乱写的值不当成关闭')
+})
+
+const WR = await import(`file:///${LIB}/weighted-recall.js`)
+
+test('renderCapabilities：续接开关决定提示词里提不提这个标记', () => {
+  const base = {
+    network: { enabled: false },
+    agentive: { enabled: true, scope: 'all', sessionIds: [], timeWindow: { enabled: false } },
+  }
+  const withHint = WR.renderCapabilities({ ...base, agentive: { ...base.agentive, selfContinue: true } })
+  assert.ok(withHint.includes('<!-- 继续：'), '开着就有标记说明')
+  const withoutHint = WR.renderCapabilities({ ...base, agentive: { ...base.agentive, selfContinue: false } })
+  assert.equal(withoutHint.includes('<!-- 继续：'), false, '关掉就别再提')
+})
+
 process.stdout.write(`\n结果：${passed} 通过 / ${failed} 失败\n`)
 if (failed > 0) {
   process.stdout.write('\n失败明细：\n')

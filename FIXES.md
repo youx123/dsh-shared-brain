@@ -126,6 +126,20 @@
 
 **没有做的**：审计提的「modules.json 没有条目上限」只是记了一笔，没动 —— 加上限意味着静默丢用户的条目，这种事不该顺手做。
 
+### 续接轮次接线（shouldContinueTurn / roundOf）
+
+这两个函数在 0.9.7 就写好了，注释把设计说得挺清楚 —— 但**一个调用点都没有**，一直是死代码。
+
+「让 AI 没干完就接着干」这件事风险不对称：续接对了省一次来回，续接错了就是它自己跟自己聊起来，后者烦人得多。所以接线时做了三个保守选择：
+
+1. **信号必须由模型自己声明**。宿主的 `agent/turn-stopping` 只给 `{ agent }`，没有「为什么停下来」这种字段，猜不出来。改成让模型在回复末尾单独写一行 HTML 注释：`<!-- 继续：把测试跑完 -->`。渲染 markdown 时看不见，不会污染正文；`continueReasonOf()` 只往后 400 字符里找，正文中间提到「继续」不会误触。
+2. **受自动互动开关管**。`agentive.enabled` 关着就完全不动 —— 续接也是「主动性」，不该有一个绕过总开关的后门。另外加了个 `selfContinue`（默认开），想单独关掉这个功能不用连带关掉主动搭话。作用范围、时间窗、**一个会话最多 3 轮**由原来的 `shouldContinueTurn` 判。
+3. **顺手补一个真 bug**：原来的 `lastRound` 只增不减 —— 一个会话续满 3 轮之后，这台机器上它**永远**不能再续接了。现在老大真说话时（`mode === 'user'`）清零。不补这个，接线等于接了个一次性的。
+
+提示词那边同步加了一句（`renderCapabilities`），只在开着的时候说；关了就不占位置。
+
+测试新增 9 条（标记解析 4、闸门与清零 3、配置默认值 1、提示词 1），`proactive-mood` 43 → 52。
+
 ### 0.10.1 补丁 2：重载后发现的泄漏回路
 
 老大重载插件后再清一遍，发现明文又回来了 —— 追下去是两个新问题，都不是之前的修复没生效：
@@ -164,7 +178,7 @@ proactive-mood 另加 2 条：待办跳过「均匀铺开」但**不**突破每�
 PERF-2 6 条（命中返回深拷贝 / 改文件失效 / 写完清缓存 / modules 同款）、
 PERF-3 4 条（与 `scoreEntry` 逐条等价 / 子串命中 / 改条目失效 / 标签权重）、PERF-4 3 条、PERF-5 4 条、PERF-6 2 条。
 
-合计：**353 通过 / 0 失败**（emotion 66 / audit-fixes 50 / audit-0101 35 / proactive-mood 43 / remote-sync 35 / persona-sync 33 / ui-render 24 / emoji-builtin 33 / perf 24 / tools 7 / harness）。
+合计：**362 通过 / 0 失败**（emotion 66 / audit-fixes 50 / audit-0101 37 / proactive-mood 52 / remote-sync 35 / persona-sync 33 / ui-render 24 / emoji-builtin 33 / perf 24 / tools 7 / harness）。
 
 ---
 
@@ -239,7 +253,7 @@ PERF-3 4 条（与 `scoreEntry` 逐条等价 / 子串命中 / 改条目失效 / 
 **P2-5 回归测试与文档**
 新增 `tests/tools.test.mjs`：给两个工具脚本自己上测试 —— 语法检查、彩排退出码、彩排不改 `package.json`、彩排输出必须带「彩排」和 `--push` 提示、彩排不碰 token。发版脚本要是哪天默认就真推，这条测试会先炸。
 本轮新增测试 34 条（emotion +7、remote-sync +4、persona-sync +10、emoji-builtin +6、tools +7），另修了 audit-fixes 里 3 处过期的表情包夹具（校验要求真 PNG 了，假头不行）。
-合计：**289 通过 / 0 失败**（emotion 66 / audit-fixes 50 / proactive-mood 43 / remote-sync 34 / persona-sync 33 / ui-render 24 / emoji-builtin 33 / tools 7 / harness）。
+合计：**289 通过 / 0 失败**（emotion 66 / audit-fixes 50 / proactive-mood 52 / remote-sync 34 / persona-sync 33 / ui-render 24 / emoji-builtin 33 / tools 7 / harness）。
 
 ### 怎么验证
 
@@ -588,7 +602,7 @@ curl 确认 0.9.8 已在宿主里跑起来（emojiSemantic / packs / packsDir / 
   - 空态：`内置表情包：大肥鱼表情包 100 张 · 40 个语义 key 已就绪（素材 CC BY-NC-SA 4.0）…` + `外部表情包（可选）：没有——不用装，内置的够用`
   - 装了包：`外部表情包（可选）：某包 1.0.0（1）（外部包目录：…）`
 - `ui-render.test.mjs` 新增 3 条断言（显示内置包概况 / 空态不甩目录 / 装了包才给目录）→ **14 通过**
-- 全量：audit-fixes 47 / proactive-mood 43 / emotion 47 / emoji-builtin 27 / harness 全过（补丁源侧 + 仓库侧各一遍）
+- 全量：audit-fixes 47 / proactive-mood 52 / emotion 47 / emoji-builtin 27 / harness 全过（补丁源侧 + 仓库侧各一遍）
 - `audit-fixes` 里一条断言跟着改（它钉的是英文文案 `"Semantic emoji packs"` → 现在 `"Extra emoji packs (optional)"`）
 - 补丁源也放了一份 `assets/`，让测试不设 `SB_LIB` 也能跑（和仓库同构）
 - 重打 tgz = **3713145 字节 / 132 文件**，integrity `sha512-FeWtpKx+TkrBQeiphfW7kHT09a3sdHk7yq3ifqaBP03pCtjPmwYcK69UDD7mMVlQokv6HNEuHuP/cavXoq+tIw==`；
@@ -669,7 +683,7 @@ const FAKE_OPENAI_ASSIGN = 'api_key = "' + 'sk-' + 'abcdefghijklmnopqrstuvwxyz12
 - 新测试 `tests/remote-sync.test.mjs`：**18 通过 / 0 失败**。用内存版假 GitHub Contents API（GET/PUT、sha 校验、409 重试）+ 两个独立 `DSH_HOME` 模拟两台机器，覆盖：仓库地址规整 / 间隔夹紧 / 只收全局条目 / updatedAt 取新 / 墓碑删除 / 30 天清理 / 人设并集 / 设置剥离会话 / A 建远端 / B 拉回 / B 删 A 跟着消失 / A 改 B 拿到新文本 / 409 自动重试 / 状态字段 / 分钟换算 / 没填仓库给清楚错误
 - `tests/ui-render.test.mjs`：加 6 条卡片用例（新增 `collectInputValues` 助手，因为输入框的值在 props 里不在文本里）→ **20 通过**
 - `test/harness.js`：加 0.9.9 分组（仓库规整 / 只同步全局 / 状态字段 / `setRemoteSync` 同步返回 / `syncNow` 返回 Promise）→ 全部通过
-- 全量回归：audit-fixes 47 / proactive-mood 43 / emotion 47 / emoji-builtin 27 / remote-sync 18 / ui-render 20 / harness 全过
+- 全量回归：audit-fixes 47 / proactive-mood 52 / emotion 47 / emoji-builtin 27 / remote-sync 18 / ui-render 20 / harness 全过
 - 打包：`vendor/dsh-shared-brain-0.9.9.tgz` **3723477 字节 / 133 文件**（26 lib + 4 元文件 + 103 assets），integrity `sha512-cShi/8sSIEyqQuAA9J6bY8ri2k/dZFOTINTeWLjCVLvIwZymgWWAmNIMUyx6Qyb8vdnYPYCDyeXW/2Cvhb+Zuw==`；`pnpm-lock.yaml` 路径 5 处 + 插件 integrity 1 处精确替换（antfu 那条复核完好，旧值 0 残留）；隔离目录 pnpm 11.28.5 安装 → `+ dsh-shared-brain 0.9.9`，26 lib / 103 assets，`remoteSyncStatus` 15 个字段，`setRemoteSync` 同步返回
 
 ### 未验证（如实标注）
@@ -745,7 +759,7 @@ ok(text.includes("已开启"), "开关按钮没有文案")
 - integrity `sha512-+WC8ImXMAQsJd5m4zttafrHkCrFz1HyGHqcSrhOrSIQH5w2GRSh9iIulXxrtGHKcKgYEWzXyOEwfKN9ZPOP4Ig==`
 - `pnpm-lock.yaml`：依赖路径 3 处 + `dsh-shared-brain@file:` 段 integrity 精确替换（旧 `sha512-Gpsqc3gr…` 残留 0 次；`@antfu/install-pkg` 那条复核完好）；备份 `*.bak-b0910-*`
 - 隔离目录 pnpm 11.28.5 安装 → `+ dsh-shared-brain 0.9.10`；从装好的包里逐项复核：两个按钮都有 children、开关有文案、`actionRow`/`syncFieldRow`/`buttonPrimary` 三个样式在、中英 `remoteSyncBusy` 在、103 个素材在
-- 全量回归（补丁源侧 + 仓库侧）：ui-render **21** / audit-fixes 47 / remote-sync 20 / emoji-builtin 27 / proactive-mood 43 / emotion 47 / `test/harness.js` 全过
+- 全量回归（补丁源侧 + 仓库侧）：ui-render **21** / audit-fixes 47 / remote-sync 20 / emoji-builtin 27 / proactive-mood 52 / emotion 47 / `test/harness.js` 全过
 
 ### 未验证
 - 真客户端里按钮的视觉效果（本鱼看不到客户端渲染，只能靠迷你渲染器验文案与结构）—— 需要老大重开设置页确认
@@ -776,7 +790,7 @@ ok(text.includes("已开启"), "开关按钮没有文案")
 
 - 新建 `tests/persona-sync.test.mjs`：**18 通过 / 0 失败**（镜像 / 跟随当前 / 不碰外来条目 / 指纹 no-op / 改正文重写 / 删除清理 / 手动选择不被拉回 / 开关 / 状态字段 / 内置兜底 / id 规整 / 看门狗）
 - `tests/ui-render.test.mjs` 加 2 条（同步行有文案与数字、关掉显示未同步）→ **23 通过 / 0 失败**
-- 全量回归：audit-fixes 47 / proactive-mood 43 / emotion 47 / emoji-builtin 27 / remote-sync 20 / persona-sync 18 / ui-render 23 / `test/harness.js` 全部通过
+- 全量回归：audit-fixes 47 / proactive-mood 52 / emotion 47 / emoji-builtin 27 / remote-sync 20 / persona-sync 18 / ui-render 23 / `test/harness.js` 全部通过
 - 真机跑一次：养鱼插件库从「0 条导入」变成 3 条镜像，`current: sb-dafeiyu`；原文件备份 `personas.json.bak-before-persona-sync-20261103-153637`
 - 打包 `vendor/dsh-shared-brain-0.9.11.tgz` = **3728107 字节 / 134 文件**，integrity `sha512-neGMYY4DNRsMTBKwNXVmLpfiV4zh0FS9cYgPgtPwNExYUoBGedcp5dsJDBSOdP7w72fh79NHBbka61p8I/zFuw==`；pnpm 11.28.5 隔离目录安装复核 27 lib / 103 assets / 组件接线全中
 
@@ -817,7 +831,7 @@ apply: {changed:true, reason:changed, name:大肥鱼, ownerTitle:主人, selfCla
 ### 测试
 - tests/persona-sync.test.mjs 加 5 条养鱼用例（首次写 / 别的配置不碰 / unchanged 不重复写 / 换人设跟着换 / 关掉不写）→ 23 通过
 - tests/ui-render.test.mjs 加 1 条（角色名 / 称呼 / 保存按钮 / 状态行占位替换）→ 24 通过
-- 全量：persona-sync 23 / ui-render 24 / remote-sync 20 / audit-fixes 47 / emoji-builtin 27 / proactive-mood 43 / emotion 47 / harness 全过
+- 全量：persona-sync 23 / ui-render 24 / remote-sync 20 / audit-fixes 47 / emoji-builtin 27 / proactive-mood 52 / emotion 47 / harness 全过
 
 ### 打包
 - vendor/dsh-shared-brain-0.9.12.tgz = 3730492 字节 / 134 文件
