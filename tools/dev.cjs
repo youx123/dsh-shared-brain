@@ -34,11 +34,13 @@ const REPO = process.env.SB_REPO || 'D:/tmp/dsh-shared-brain'
 const SUITES = [
   'emotion',
   'audit-fixes',
+  'audit-0101',
   'proactive-mood',
   'remote-sync',
   'persona-sync',
   'ui-render',
   'emoji-builtin',
+  'perf',
   'tools',
 ]
 

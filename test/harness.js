@@ -787,7 +787,11 @@ console.log('== 0.9：按会话隔离 + 自动互动真实化 ==')
   assert(state.currentContext('sess-b').prompt === 'B 问的问题', '会话 B 拿到自己的提示词')
   assert(state.currentContext('sess-a').cwd === 'D:/a', '会话 A 拿到自己的工作目录')
   assert(state.getAgentContext('sess-a').title === '会话 A', '会话标题按会话存')
-  assert(state.currentContext('sess-unknown').prompt === 'B 问的问题', '未知会话退回最近活跃会话（兜底，不留空）')
+  // 2026-11-04（P1-12 审计）：未知会话**不再**退回最近活跃会话。
+  // 以前的兜底会把 A 会话的内容喂给 B 会话（跨会话串味）。
+  // 现在：有 sessionId 但取不到 → 返回空，不拿别的会话顶。
+  assert(state.currentContext('sess-unknown').prompt === '', '未知会话不拿别的会话顶（返回空）')
+  assert(state.currentContext('sess-unknown').sessionId === '', '未知会话返回空上下文')
   state.setLastInjected('sess-a', 'PAYLOAD-A')
   assert(state.lastInjected('sess-a') === 'PAYLOAD-A', '注入去重按会话存')
   assert(state.lastInjected('sess-b') === '', '去重状态不会串到别的会话')

@@ -522,6 +522,32 @@ test('buildProactivePrompt 说明是主动搭话，并带话题与语气', () =>
 })
 
 // ───────────────────────────────────────────────────────────────────
+test('待办跳过均匀铺开：额度还剩、但被 paced 压住的间隔内，待办照样能说', () => {
+  // 3 次/天铺在 14 小时里 → evenGap ≈ 4.7 小时。
+  // 待办不该被这个间隔压住（「答应过的事不能拖」），但仍受 maxPerDay 硬上限。
+  const decision = PM.decideProactive({
+    moodState: moodState({ mood: 60 }),
+    history: history({ lastSpokeAt: NOW - 20 * MIN, pending: ['答应老大回头把文档整理好'], spokeToday: 0 }),
+    config: PM.normalizeProactiveMoodConfig(),
+    endTs: NOW + 10 * HOUR,
+    now: NOW,
+  })
+  assert.equal(decision.reason, 'pending', '不该被 paced 拦下')
+})
+
+test('待办不突破每日上限：额度用完照样闭嘴', () => {
+  const config = PM.normalizeProactiveMoodConfig()
+  const decision = PM.decideProactive({
+    moodState: moodState({ mood: 60 }),
+    history: history({ lastSpokeAt: NOW - 20 * MIN, pending: ['答应老大回头把文档整理好'], spokeToday: config.maxPerDay }),
+    config,
+    endTs: NOW + 10 * HOUR,
+    now: NOW,
+  })
+  assert.equal(decision.action, 'silent')
+  assert.equal(decision.reason, 'daily-limit')
+})
+
 process.stdout.write(`\n结果：${passed} 通过 / ${failed} 失败\n`)
 if (failed > 0) {
   process.stdout.write('\n失败明细：\n')

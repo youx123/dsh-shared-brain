@@ -241,7 +241,7 @@ try {
   /* ---------------------------------------------------------------- */
   group("人设与设置")
 
-  test("mergePersona：personas 按 id 并集，本机会话映射原样保留", () => {
+  test("mergePersona：personas 按 id 并集，会话映射不进合并结果", () => {
     const local = {
       version: 1,
       current: "a",
@@ -262,11 +262,29 @@ try {
     assertEqual(merged.current, "a", "人设时间戳更新的赢")
     assertEqual(merged.personas.length, 2, "并集两条")
     assertEqual(merged.personas.find((p) => p.id === "a").name, "本机", "同 id 取新")
-    // 2026-11-03（P1-6）：旧实现把 bySession 清空，写回本机时会把所有
-    // 「会话 → 人设」绑定抹掉。会话映射是纯本机的东西，必须原样留着。
-    assertEqual(Object.keys(merged.bySession).length, 1, "本机会话映射要留着")
-    assertEqual(merged.bySession.s1, "a", "本机的绑定不动")
-    assertEqual(Object.keys(merged.bySession).includes("s2"), false, "远端的会话映射不进来")
+    // 2026-11-04（P1-6 审计）：合并结果**不带** bySession。
+    // 「会话 → 人设」的绑定是本机的事（别的机器上没有这些会话），
+    // 以前它跟着合并结果写进远端 persona.json → 本机布局泄露到云上，
+    // 远端回来时又会把本机绑定覆盖掉。
+    // 本机的绑定由 syncOnce 落地时单独从本地补回来（见下面那条测试）。
+    assertEqual(merged.bySession, undefined, "合并结果不带会话映射")
+  })
+
+  test("mergePersona：会话映射不进合并结果，但本机那份仍然有效", () => {
+    // 合并结果是要推给远端的形状 —— 里面不该有 bySession。
+    // 本机的 bySession 存在 persona.json 里，syncOnce 落地时补回去，
+    // 所以「合并结果没有」不等于「本机丢了」。
+    const local = {
+      version: 1,
+      current: "a",
+      currentAt: 1000,
+      personas: [{ id: "a", name: "甲", updatedAt: 1000 }],
+      bySession: { s1: "a", s2: "a" },
+      updatedAt: 1000,
+    }
+    const merged = sync.mergePersona(local, {}, {})
+    assertEqual(merged.bySession, undefined, "推给远端的不带会话映射")
+    assertEqual(Object.keys(local.bySession).length, 2, "本地那份原样没动")
   })
 
   test("mergePersona：current 只听自己的 currentAt，不抢整份时间戳", () => {
