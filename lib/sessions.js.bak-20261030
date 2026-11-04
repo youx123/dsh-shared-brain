@@ -1,0 +1,380 @@
+/**
+ * 会话目录：把「宿主里有哪些会话」整理成设置页能直接勾选的样子。
+ *
+ * 为什么单独一个文件：这件事要用三样宿主服务（活跃会话 / 持久化快照 / 工作区
+ * 注册表），而且 durable 那份是异步、可能慢的，不能卡住 status 请求。所以这里
+ * 做成「后台刷新 + 读缓存」：界面随时能拿到上一份快照，刷新在后台进行。
+ */
+
+import { basename } from 'node:path'
+
+/** 两次刷新之间至少隔这么久，避免设置页连点把宿主读爆。 */
+const REFRESH_MIN_MS = 3000
+
+/** 一次最多列多少会话（再多界面也没法挑）。 */
+const MAX_SESSIONS = 300
+
+/**
+ * 从 ctx 取服务。
+ *
+ * 注意：cordis 里 **没在 `inject` 里声明的服务不会变成 ctx 上的属性**，但
+ * `ctx.get(name)` 仍能取到（它只查服务表，不要求调用者声明依赖）。所以这里
+ * 一定先走 get()；属性访问只是给别的运行时兜底。
+ */
+function pickService(ctx, name) {
+  for (const owner of [ctx, ctx?.root]) {
+    if (!owner) continue
+    try {
+      if (typeof owner.get === 'function') {
+        const value = owner.get(name)
+        if (value !== undefined) return value
+      }
+    } catch {
+      // ctx.get 对未知服务可能抛错，忽略
+    }
+    // strict=false：即使服务的提供者当前不是 ACTIVE 状态也取出来用
+    try {
+      if (owner.reflect && typeof owner.reflect.get === 'function') {
+        const value = owner.reflect.get(name, false)
+        if (value !== undefined) return value
+      }
+    } catch {
+      // reflect 也可能不可用
+    }
+    try {
+      const value = owner[name]
+      if (value !== undefined) return value
+    } catch {
+      // 属性访问也可能抛错
+    }
+  }
+  return undefined
+}
+
+/** 路径归一：统一分隔符、去尾斜杠、小写（Windows 大小写不敏感）。 */
+function normPath(value) {
+  const text = String(value ?? '').trim()
+  if (!text) return ''
+  return text.replace(/\\/g, '/').replace(/\/+$/, '').toLowerCase()
+}
+
+/** 会话 id 的短名：去掉 `session-` 前缀，免得一屏全都显示成「session-」。 */
+function shortId(id) {
+  const text = String(id ?? '')
+  const stripped = text.startsWith('session-') ? text.slice('session-'.length) : text
+  return stripped.slice(0, 8)
+}
+
+/** 会话 id 的同一性键：同一条会话可能被写成 `session-xxx` 或裸 `xxx`。 */
+function idKey(id) {
+  const text = String(id ?? '').trim()
+  return text.startsWith('session-') ? text.slice('session-'.length) : text
+}
+
+/** 一个会话该显示成什么名字：优先标题，否则「目录名 · 时间」。 */
+function titleOf(entry) {
+  const meta = entry.meta || {}
+  let name = ''
+  for (const key of ['title', 'name', 'summary', 'label']) {
+    const value = meta[key]
+    if (typeof value === 'string' && value.trim()) {
+      name = value.trim().slice(0, 80)
+      break
+    }
+  }
+  if (!name) {
+    const cwd = String(entry.header?.cwd ?? '').trim()
+    const folder = cwd ? basename(cwd.replace(/\\/g, '/')) || cwd : ''
+    const at = Number(entry.header?.createdAt)
+    let stamp = ''
+    if (Number.isFinite(at) && at > 0) {
+      const date = new Date(at)
+      const pad = (n) => String(n).padStart(2, '0')
+      stamp = `${date.getMonth() + 1}/${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`
+    }
+    name = folder && stamp ? `${folder} · ${stamp}` : folder || stamp || shortId(entry.id)
+  }
+  // 子代理 / 插件开的会话：标一下来源，不然一屏会话分不清谁是谁。
+  // 注意：有标题的会话也要标，否则用户看不出它其实是别的插件开的。
+  const origin = typeof entry.origin === 'string' && entry.origin ? entry.origin : ''
+  const prefix = origin === 'subagent' ? '子代理' : origin ? '插件会话' : ''
+  return prefix ? `[${prefix}] ${name}` : name
+}
+
+/**
+ * 建一个会话目录。
+ *
+ * @param {object} ctx 插件上下文
+ * @returns {{ refresh: (options?: {force?: boolean}) => Promise<object>, snapshot: () => object }}
+ */
+export function createSessionCatalog(ctx) {
+  const state = {
+    workspaces: [],
+    flat: [],
+    total: 0,
+    live: 0,
+    current: '',
+    updatedAt: 0,
+    error: '',
+    scanning: false,
+  }
+
+  let lastScanAt = 0
+  let inflight = null
+  let warnedMissing = false
+
+  function setCurrent(sessionId) {
+    state.current = typeof sessionId === 'string' ? sessionId : ''
+  }
+
+  /** 扫描一遍：活跃会话 + 持久化会话，合成扁平清单与工作区分组。 */
+  async function scan() {
+    const registry = pickService(ctx, 'workspaceRegistry')
+    const sessions = pickService(ctx, 'sessions')
+    const persistence = pickService(ctx, 'sessionPersistence')
+
+    const found = new Map()
+    const problems = []
+
+    // 1) 活跃会话（当前进程里开着/开过的）
+    if (sessions && typeof sessions.list === 'function') {
+      try {
+        for (const session of sessions.list() ?? []) {
+          const header = session?.header ?? {}
+          const id = typeof header.id === 'string' ? header.id : typeof session?.id === 'string' ? session.id : ''
+          const key = idKey(id)
+          if (!key) continue
+          found.set(key, { id, header, meta: session?.meta ?? {}, live: true })
+        }
+      } catch (error) {
+        problems.push(`活跃会话读取失败：${String(error?.message ?? error)}`)
+      }
+    } else {
+      problems.push('宿主没有 sessions 服务')
+    }
+
+    // 1.5) 活跃 agent（AgentRegistry）
+    // 其它插件（task-board、im、ssh……）自己开的会话不一定登记在 sessions 服务里，
+    // 但只要它是活着的 agent，就该出现在「可选择的会话」清单中——不然用户
+    // 没法给这些会话单独指定人设或开启自动互动。
+    const agents = pickService(ctx, 'agents')
+    if (agents && typeof agents.list === 'function') {
+      try {
+        for (const agent of agents.list() ?? []) {
+          const header = agent?.session?.header ?? {}
+          const id = typeof header.id === 'string' && header.id ? header.id : typeof agent?.id === 'string' ? agent.id : ''
+          const key = idKey(id)
+          if (!key) continue
+          const existing = found.get(key)
+          // 已经以「活跃会话」收录过就不用重复；只在它是历史快照时升级成活的
+          if (existing?.live === true) continue
+          found.set(key, {
+            id: existing?.id ?? id,
+            header: existing?.header ?? header,
+            meta: existing?.meta ?? agent?.session?.meta ?? {},
+            live: true,
+            origin: typeof header.origin === 'string' ? header.origin : existing?.origin ?? '',
+          })
+        }
+      } catch (error) {
+        problems.push(`活跃 agent 读取失败：${String(error?.message ?? error)}`)
+      }
+    }
+
+    // 2) 持久化快照（磁盘上所有会话，含当前没打开的）
+    if (persistence && typeof persistence.list === 'function') {
+      try {
+        const snapshots = (await persistence.list()) ?? []
+        for (const snapshot of snapshots) {
+          const header = snapshot?.header ?? {}
+          const id = typeof header.id === 'string' ? header.id : ''
+          const key = idKey(id)
+          if (!key || found.has(key)) continue
+          found.set(key, { id, header, meta: snapshot?.meta ?? {}, live: false })
+        }
+      } catch (error) {
+        problems.push(`持久会话读取失败：${String(error?.message ?? error)}`)
+      }
+    }
+
+    // 3) 工作区（同步，列表已按持久序排好）
+    let workspaceList = []
+    if (registry && typeof registry.list === 'function') {
+      try {
+        workspaceList = registry.list() ?? []
+      } catch (error) {
+        problems.push(`工作区读取失败：${String(error?.message ?? error)}`)
+      }
+    } else {
+      problems.push('宿主没有 workspaceRegistry 服务')
+    }
+
+    // 扁平清单：按创建时间倒序（最近的会话排前面）
+    const flat = [...found.values()]
+      .sort((a, b) => Number(b.header?.createdAt ?? 0) - Number(a.header?.createdAt ?? 0))
+      .slice(0, MAX_SESSIONS)
+      .map((entry) => ({
+        id: entry.id,
+        title: titleOf(entry),
+        cwd: typeof entry.header?.cwd === 'string' ? entry.header.cwd : '',
+        createdAt: Number(entry.header?.createdAt ?? 0) || 0,
+        live: entry.live === true,
+        current: idKey(entry.id) === idKey(state.current),
+        // 子代理 / 插件开的会话，界面上标一下来源
+        origin: entry.origin ?? (typeof entry.header?.origin === 'string' ? entry.header.origin : ''),
+      }))
+
+    // 分组：工作区路径是会话 cwd 的前缀就归它；归不上的放「其他会话」
+    const byId = new Map(flat.map((item) => [idKey(item.id), item]))
+    const used = new Set()
+    const workspaces = []
+    for (const workspace of workspaceList) {
+      const path = typeof workspace?.path === 'string' ? workspace.path : ''
+      const id = typeof workspace?.id === 'string' ? workspace.id : ''
+      if (!id) continue
+      const normalized = normPath(path)
+      const members = []
+      for (const sessionId of Array.isArray(workspace.sessionIds) ? workspace.sessionIds : []) {
+        const key = idKey(sessionId)
+        const item = byId.get(key)
+        if (!item || used.has(key)) continue
+        used.add(key)
+        members.push(item)
+      }
+      if (normalized) {
+        for (const item of flat) {
+          const key = idKey(item.id)
+          if (used.has(key)) continue
+          const cwd = normPath(item.cwd)
+          if (!cwd) continue
+          if (cwd === normalized || cwd.startsWith(`${normalized}/`)) {
+            used.add(key)
+            members.push(item)
+          }
+        }
+      }
+      // 活跃会话排前面，历史会话排后面：进设置页第一眼看到的就是「现在开着的」
+      members.sort(
+        (a, b) => Number(b.live === true) - Number(a.live === true) || b.createdAt - a.createdAt,
+      )
+      workspaces.push({
+        id,
+        title: typeof workspace?.title === 'string' && workspace.title ? workspace.title : path || id,
+        path,
+        // 组级标记：前端据此默认只显示「当前工作区 + 活跃会话」，
+        // 不然用户明明只开着一个会话，却看到一屏历史会话可以勾选。
+        current: members.some((item) => item.current),
+        live: members.filter((item) => item.live === true).length,
+        total: members.length,
+        sessions: members,
+      })
+    }
+
+    const leftovers = flat.filter((item) => !used.has(idKey(item.id)))
+    if (leftovers.length > 0) {
+      workspaces.push({
+        id: '__other__',
+        title: '其他会话',
+        path: '',
+        current: leftovers.some((item) => item.current),
+        live: leftovers.filter((item) => item.live === true).length,
+        total: leftovers.length,
+        sessions: leftovers,
+      })
+    }
+
+    // 一个工作区都没有但确实有会话时，仍然给界面一份能选的清单
+    if (workspaces.length === 0 && flat.length > 0) {
+      workspaces.push({
+        id: '__all__',
+        title: '会话',
+        path: '',
+        current: flat.some((item) => item.current),
+        live: flat.filter((item) => item.live === true).length,
+        total: flat.length,
+        sessions: flat,
+      })
+    }
+
+    // 当前工作区排最前面，其次是有活跃会话的工作区
+    workspaces.sort(
+      (a, b) =>
+        Number(b.current === true) - Number(a.current === true) ||
+        Number(b.live ?? 0) - Number(a.live ?? 0),
+    )
+
+    state.workspaces = workspaces
+    state.flat = flat
+    state.total = flat.length
+    state.live = flat.filter((item) => item.live).length
+    state.updatedAt = Date.now()
+    state.error = problems.join('；')
+
+    if (!registry && !warnedMissing) {
+      warnedMissing = true
+      ctx?.logger?.warn?.('dsh-shared-brain: 拿不到 workspaceRegistry，会话选择只能列出扁平清单')
+    }
+    return state
+  }
+
+  /**
+   * 刷新快照。
+   *
+   * 默认节流：3 秒内的重复调用直接返回缓存；force 跳过节流（例如点了「刷新」）。
+   * 并发调用共享同一个 promise，不会重复扫。
+   */
+  function refresh(options = {}) {
+    const now = Date.now()
+    if (inflight) return inflight
+    if (options.force !== true && now - lastScanAt < REFRESH_MIN_MS) {
+      return Promise.resolve(state)
+    }
+    lastScanAt = now
+    state.scanning = true
+    inflight = scan()
+      .catch((error) => {
+        state.error = String(error?.message ?? error)
+        return state
+      })
+      .finally(() => {
+        state.scanning = false
+        inflight = null
+      })
+    return inflight
+  }
+
+  /**
+   * 读当前快照（同步，永不读盘）。
+   *
+   * 当前会话是扫描之后才认领的（宿主每轮才把 sessionId 报给 setCurrent），
+   * 所以这里按最新的 state.current 重新标一遍 current：
+   * 否则界面上的「当前」徽章、以及「只看当前工作区」都会一直不亮。
+   */
+  function snapshot() {
+    const key = idKey(state.current)
+    const mark = (entry) => ({ ...entry, current: key !== '' && idKey(entry.id) === key })
+    const flat = state.flat.map(mark)
+    const workspaces = state.workspaces.map((group) => {
+      const sessions = Array.isArray(group.sessions) ? group.sessions.map(mark) : []
+      return {
+        ...group,
+        sessions,
+        current: sessions.some((item) => item.current === true),
+        live: sessions.filter((item) => item.live === true).length,
+        total: sessions.length,
+      }
+    })
+    return {
+      workspaces,
+      flat,
+      total: flat.length,
+      live: flat.filter((item) => item.live === true).length,
+      current: state.current,
+      updatedAt: state.updatedAt,
+      error: state.error,
+      scanning: state.scanning,
+    }
+  }
+
+  return { refresh, snapshot, setCurrent }
+}

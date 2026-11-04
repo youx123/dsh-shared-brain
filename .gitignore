@@ -1,0 +1,14 @@
+node_modules/
+*.log
+
+# 本地备份（改文件前留的，不进仓库）
+backup-*/
+
+# 打包产物
+*.vsix
+*.tgz
+
+# 系统垃圾
+Thumbs.db
+.DS_Store
+desktop.ini

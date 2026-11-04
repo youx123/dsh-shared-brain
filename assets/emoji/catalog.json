@@ -1,0 +1,602 @@
+[
+  {
+    "id": "001",
+    "label": "不服气",
+    "category": "首批常用",
+    "meaning": "不服气"
+  },
+  {
+    "id": "002",
+    "label": "开心",
+    "category": "首批常用",
+    "meaning": "开心"
+  },
+  {
+    "id": "003",
+    "label": "点赞",
+    "category": "首批常用",
+    "meaning": "点赞"
+  },
+  {
+    "id": "004",
+    "label": "委屈",
+    "category": "首批常用",
+    "meaning": "委屈"
+  },
+  {
+    "id": "005",
+    "label": "生气",
+    "category": "首批常用",
+    "meaning": "生气"
+  },
+  {
+    "id": "006",
+    "label": "无语",
+    "category": "首批常用",
+    "meaning": "无语"
+  },
+  {
+    "id": "007",
+    "label": "困了",
+    "category": "首批常用",
+    "meaning": "困了"
+  },
+  {
+    "id": "008",
+    "label": "谢谢",
+    "category": "首批常用",
+    "meaning": "谢谢"
+  },
+  {
+    "id": "009",
+    "label": "收到！",
+    "category": "首批常用",
+    "meaning": "收到！"
+  },
+  {
+    "id": "010",
+    "label": "抱抱",
+    "category": "首批常用",
+    "meaning": "抱抱"
+  },
+  {
+    "id": "011",
+    "label": "震惊",
+    "category": "首批常用",
+    "meaning": "震惊"
+  },
+  {
+    "id": "012",
+    "label": "再见",
+    "category": "首批常用",
+    "meaning": "再见"
+  },
+  {
+    "id": "013",
+    "label": "喜欢",
+    "category": "首批常用",
+    "meaning": "喜欢"
+  },
+  {
+    "id": "014",
+    "label": "对不起",
+    "category": "首批常用",
+    "meaning": "对不起"
+  },
+  {
+    "id": "015",
+    "label": "开饭啦",
+    "category": "首批常用",
+    "meaning": "开饭啦"
+  },
+  {
+    "id": "016",
+    "label": "加油",
+    "category": "首批常用",
+    "meaning": "加油"
+  },
+  {
+    "id": "017",
+    "label": "早安",
+    "category": "日常回应",
+    "meaning": "一天开始时打招呼"
+  },
+  {
+    "id": "018",
+    "label": "晚安",
+    "category": "日常回应",
+    "meaning": "睡前道别祝好梦"
+  },
+  {
+    "id": "019",
+    "label": "在吗",
+    "category": "日常回应",
+    "meaning": "试探对方是否在线"
+  },
+  {
+    "id": "020",
+    "label": "来了",
+    "category": "日常回应",
+    "meaning": "表示已经到场或开始回应"
+  },
+  {
+    "id": "021",
+    "label": "等一下",
+    "category": "日常回应",
+    "meaning": "请对方稍候"
+  },
+  {
+    "id": "022",
+    "label": "马上到",
+    "category": "日常回应",
+    "meaning": "告知正在赶来"
+  },
+  {
+    "id": "023",
+    "label": "没问题",
+    "category": "日常回应",
+    "meaning": "自信答应请求"
+  },
+  {
+    "id": "024",
+    "label": "好的",
+    "category": "日常回应",
+    "meaning": "温和表示同意"
+  },
+  {
+    "id": "025",
+    "label": "明白",
+    "category": "日常回应",
+    "meaning": "表示已经理解"
+  },
+  {
+    "id": "026",
+    "label": "安排了",
+    "category": "日常回应",
+    "meaning": "表示已着手办理"
+  },
+  {
+    "id": "027",
+    "label": "辛苦了",
+    "category": "日常回应",
+    "meaning": "表达体贴与慰劳"
+  },
+  {
+    "id": "028",
+    "label": "拜托了",
+    "category": "日常回应",
+    "meaning": "礼貌认真地请求帮助"
+  },
+  {
+    "id": "029",
+    "label": "笑死",
+    "category": "抽象反应",
+    "meaning": "被逗得忍不住笑"
+  },
+  {
+    "id": "030",
+    "label": "哈哈哈",
+    "category": "抽象反应",
+    "meaning": "毫不掩饰地大笑"
+  },
+  {
+    "id": "031",
+    "label": "绷不住了",
+    "category": "抽象反应",
+    "meaning": "努力忍笑最后失败"
+  },
+  {
+    "id": "032",
+    "label": "离谱",
+    "category": "抽象反应",
+    "meaning": "对不合理情况感到荒谬"
+  },
+  {
+    "id": "033",
+    "label": "真的假的",
+    "category": "抽象反应",
+    "meaning": "惊讶地确认信息真假"
+  },
+  {
+    "id": "034",
+    "label": "啊这",
+    "category": "抽象反应",
+    "meaning": "一时语塞与尴尬"
+  },
+  {
+    "id": "035",
+    "label": "好家伙",
+    "category": "抽象反应",
+    "meaning": "对超出预期的事情感叹"
+  },
+  {
+    "id": "036",
+    "label": "我裂开了",
+    "category": "抽象反应",
+    "meaning": "遇到打击后的夸张崩溃"
+  },
+  {
+    "id": "037",
+    "label": "麻了",
+    "category": "抽象反应",
+    "meaning": "被反复折腾到失去反应"
+  },
+  {
+    "id": "038",
+    "label": "破防了",
+    "category": "抽象反应",
+    "meaning": "情绪防线被击穿"
+  },
+  {
+    "id": "039",
+    "label": "红温了",
+    "category": "抽象反应",
+    "meaning": "气到脸红发烫"
+  },
+  {
+    "id": "040",
+    "label": "那咋了",
+    "category": "抽象反应",
+    "meaning": "坦然或倔强地回应质疑"
+  },
+  {
+    "id": "041",
+    "label": "已老实",
+    "category": "抽象反应",
+    "meaning": "吃过苦头后乖乖认怂"
+  },
+  {
+    "id": "042",
+    "label": "求放过",
+    "category": "抽象反应",
+    "meaning": "请求停止折腾或为难"
+  },
+  {
+    "id": "043",
+    "label": "我没事",
+    "category": "抽象反应",
+    "meaning": "强颜欢笑地表示撑得住"
+  },
+  {
+    "id": "044",
+    "label": "不想说话",
+    "category": "抽象反应",
+    "meaning": "疲惫或无奈地保持沉默"
+  },
+  {
+    "id": "045",
+    "label": "静静看戏",
+    "category": "抽象反应",
+    "meaning": "安静围观事情发展"
+  },
+  {
+    "id": "046",
+    "label": "吃瓜",
+    "category": "抽象反应",
+    "meaning": "兴致勃勃地围观八卦"
+  },
+  {
+    "id": "047",
+    "label": "拿捏了",
+    "category": "抽象反应",
+    "meaning": "表示事情尽在掌握"
+  },
+  {
+    "id": "048",
+    "label": "我懂你",
+    "category": "抽象反应",
+    "meaning": "表达理解与共鸣"
+  },
+  {
+    "id": "049",
+    "label": "尊嘟假嘟",
+    "category": "抽象反应",
+    "meaning": "撒娇式地表示真的假的"
+  },
+  {
+    "id": "050",
+    "label": "你礼貌吗",
+    "category": "抽象反应",
+    "meaning": "用克制的质问回应冒犯"
+  },
+  {
+    "id": "051",
+    "label": "有被冒犯",
+    "category": "抽象反应",
+    "meaning": "表示受到了轻微冒犯"
+  },
+  {
+    "id": "052",
+    "label": "大可不必",
+    "category": "抽象反应",
+    "meaning": "婉拒没有必要的安排"
+  },
+  {
+    "id": "053",
+    "label": "退退退",
+    "category": "抽象反应",
+    "meaning": "夸张地赶走烦恼"
+  },
+  {
+    "id": "054",
+    "label": "想你了",
+    "category": "亲密陪伴",
+    "meaning": "表达惦念与想念"
+  },
+  {
+    "id": "055",
+    "label": "贴贴",
+    "category": "亲密陪伴",
+    "meaning": "撒娇地寻求亲近"
+  },
+  {
+    "id": "056",
+    "label": "亲亲",
+    "category": "亲密陪伴",
+    "meaning": "送出一个可爱的飞吻"
+  },
+  {
+    "id": "057",
+    "label": "爱你",
+    "category": "亲密陪伴",
+    "meaning": "直接表达喜爱与爱意"
+  },
+  {
+    "id": "058",
+    "label": "摸摸头",
+    "category": "亲密陪伴",
+    "meaning": "安慰或奖励对方"
+  },
+  {
+    "id": "059",
+    "label": "别难过",
+    "category": "亲密陪伴",
+    "meaning": "劝慰低落的朋友"
+  },
+  {
+    "id": "060",
+    "label": "有我在",
+    "category": "亲密陪伴",
+    "meaning": "表达可靠陪伴和支持"
+  },
+  {
+    "id": "061",
+    "label": "给你花",
+    "category": "亲密陪伴",
+    "meaning": "送出祝福或表达欣赏"
+  },
+  {
+    "id": "062",
+    "label": "上班了",
+    "category": "打工摸鱼",
+    "meaning": "开始一天的工作"
+  },
+  {
+    "id": "063",
+    "label": "下班啦",
+    "category": "打工摸鱼",
+    "meaning": "开心结束工作"
+  },
+  {
+    "id": "064",
+    "label": "摸鱼中",
+    "category": "打工摸鱼",
+    "meaning": "轻松表示正在偷闲"
+  },
+  {
+    "id": "065",
+    "label": "赶工中",
+    "category": "打工摸鱼",
+    "meaning": "正在忙着完成任务"
+  },
+  {
+    "id": "066",
+    "label": "我尽力了",
+    "category": "打工摸鱼",
+    "meaning": "表达已经全力以赴"
+  },
+  {
+    "id": "067",
+    "label": "不想上班",
+    "category": "打工摸鱼",
+    "meaning": "表达上班前的抗拒"
+  },
+  {
+    "id": "068",
+    "label": "开会中",
+    "category": "打工摸鱼",
+    "meaning": "说明暂时不便回复"
+  },
+  {
+    "id": "069",
+    "label": "我太难了",
+    "category": "打工摸鱼",
+    "meaning": "抱怨任务和生活压力"
+  },
+  {
+    "id": "070",
+    "label": "CPU烧了",
+    "category": "打工摸鱼",
+    "meaning": "信息过载或思考卡住"
+  },
+  {
+    "id": "071",
+    "label": "救命",
+    "category": "打工摸鱼",
+    "meaning": "夸张表达忙乱和求助"
+  },
+  {
+    "id": "072",
+    "label": "让我缓缓",
+    "category": "打工摸鱼",
+    "meaning": "请求一点恢复时间"
+  },
+  {
+    "id": "073",
+    "label": "充电中",
+    "category": "打工摸鱼",
+    "meaning": "休息恢复精力"
+  },
+  {
+    "id": "074",
+    "label": "干饭人",
+    "category": "打工摸鱼",
+    "meaning": "热情准备享用食物"
+  },
+  {
+    "id": "075",
+    "label": "先吃一口",
+    "category": "打工摸鱼",
+    "meaning": "先吃点东西再继续"
+  },
+  {
+    "id": "076",
+    "label": "咖啡续命",
+    "category": "打工摸鱼",
+    "meaning": "靠咖啡提神继续工作"
+  },
+  {
+    "id": "077",
+    "label": "发工资啦",
+    "category": "打工摸鱼",
+    "meaning": "为收入到账感到开心"
+  },
+  {
+    "id": "078",
+    "label": "疑惑",
+    "category": "情绪状态",
+    "meaning": "表示不理解或想问问题"
+  },
+  {
+    "id": "079",
+    "label": "嫌弃",
+    "category": "情绪状态",
+    "meaning": "表达轻微的不喜欢"
+  },
+  {
+    "id": "080",
+    "label": "紧张",
+    "category": "情绪状态",
+    "meaning": "等待结果时的不安"
+  },
+  {
+    "id": "081",
+    "label": "期待",
+    "category": "情绪状态",
+    "meaning": "盼望好消息或好事情"
+  },
+  {
+    "id": "082",
+    "label": "害羞",
+    "category": "情绪状态",
+    "meaning": "不好意思或羞涩"
+  },
+  {
+    "id": "083",
+    "label": "偷笑",
+    "category": "情绪状态",
+    "meaning": "忍不住偷偷发笑"
+  },
+  {
+    "id": "084",
+    "label": "得意",
+    "category": "情绪状态",
+    "meaning": "为小小成就骄傲"
+  },
+  {
+    "id": "085",
+    "label": "心累",
+    "category": "情绪状态",
+    "meaning": "情绪上的疲惫"
+  },
+  {
+    "id": "086",
+    "label": "好累",
+    "category": "情绪状态",
+    "meaning": "身体累了想休息"
+  },
+  {
+    "id": "087",
+    "label": "饿了",
+    "category": "情绪状态",
+    "meaning": "表示想吃东西"
+  },
+  {
+    "id": "088",
+    "label": "撑了",
+    "category": "情绪状态",
+    "meaning": "吃饱到不想动"
+  },
+  {
+    "id": "089",
+    "label": "冻住了",
+    "category": "情绪状态",
+    "meaning": "表达天气冷或冷到发抖"
+  },
+  {
+    "id": "090",
+    "label": "热化了",
+    "category": "情绪状态",
+    "meaning": "天气太热时的疲惫"
+  },
+  {
+    "id": "091",
+    "label": "满血复活",
+    "category": "情绪状态",
+    "meaning": "休息后恢复精神"
+  },
+  {
+    "id": "092",
+    "label": "撤退",
+    "category": "情绪状态",
+    "meaning": "表示先走一步或回避"
+  },
+  {
+    "id": "093",
+    "label": "确认眼神",
+    "category": "情绪状态",
+    "meaning": "用默契的眼神确认彼此"
+  },
+  {
+    "id": "094",
+    "label": "恭喜",
+    "category": "祝福庆祝",
+    "meaning": "庆祝对方的好消息"
+  },
+  {
+    "id": "095",
+    "label": "发财啦",
+    "category": "祝福庆祝",
+    "meaning": "祝愿发财或庆祝进账"
+  },
+  {
+    "id": "096",
+    "label": "接好运",
+    "category": "祝福庆祝",
+    "meaning": "接住好运和好兆头"
+  },
+  {
+    "id": "097",
+    "label": "欧气满满",
+    "category": "祝福庆祝",
+    "meaning": "庆祝运气好抽到心仪结果"
+  },
+  {
+    "id": "098",
+    "label": "好运加一",
+    "category": "祝福庆祝",
+    "meaning": "给对方加一份好运祝福"
+  },
+  {
+    "id": "099",
+    "label": "生日快乐",
+    "category": "祝福庆祝",
+    "meaning": "为生日送祝福"
+  },
+  {
+    "id": "100",
+    "label": "周末快乐",
+    "category": "祝福庆祝",
+    "meaning": "庆祝周末与休息时间"
+  }
+]

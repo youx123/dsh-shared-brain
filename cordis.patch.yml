@@ -1,0 +1,24 @@
+# ============================================================================
+# dsh-shared-brain 的 bundle patch —— 把共享记忆插件挂进 DSH 配置树
+# ============================================================================
+#
+# 【这是什么】
+#   这是 dsh-shared-brain 的"挂载声明"。DSH 启动时按 bundle 层栈把各个插件的
+#   patch 叠起来组成配置树。本文件就是 dsh-shared-brain 这一层的内容。
+#
+# 【工作原理】
+#   - insert：往配置树里添加新的插件行（entry）
+#   - 每个 entry 有 id（行标识，patch 覆盖时按它定位）和 name（插件模块）
+#   - id 必须全局唯一；name 必须是包名，宿主会从 profile 自己的 node_modules
+#     解析它（`dsh plugin --profile <profile> add <本包路径>` 或 Web 插件页安装
+#     本包后即可）。
+#
+# 【为什么不写 config 行】
+#   市场热挂载（dshmarket 的 hotMount）只接受"纯 insert"行：只要 patch 里出现
+#   config 行或表达式，就只能等重启生效。本插件保持纯 insert，因此既能被正常
+#   的 bundle 层加载，也能被市场热挂载当场启用。
+# ============================================================================
+
+- insert:
+    - id: shared-brain
+      name: dsh-shared-brain

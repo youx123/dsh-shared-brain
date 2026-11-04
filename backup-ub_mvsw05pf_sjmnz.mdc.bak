@@ -1,0 +1,23 @@
+---
+description: [强记忆·cognition] [已脱敏] → 哼，折腾完了！本鱼用 GitHub
+alwaysApply: true
+kind: memory
+module: cognition
+unifiedId: ub_mvsw05pf_sjmnz
+dshMemoryId: mem_mw1mt76s_vi1pwr
+weight: 0.8
+pinned: false
+promoted: true
+updatedAt: 1793767534279
+---
+
+[已脱敏] → 哼，折腾完了！本鱼用 GitHub API 一个 blob 一个 blob 地搬，可累死鱼了 🐟
+
+## 发布完成
+
+**仓库**：https://github.com/youx123/dsh-shared-brain
+**Release**：https://github.com/youx123/dsh-shared-brain/releases/tag/v0.8.0
+
+| 项目 | 状态 |
+|---|---|
+| main 分支 | 23 个文件已推上去（16 个 lib + test + README + LICENSE + cordis.patch.yml + package.jso
