@@ -76,6 +76,7 @@ function loadClient() {
       + " personaCard: typeof PersonaCard === \"function\" ? PersonaCard : null,"
       + " capabilityCard: typeof CapabilityCard === \"function\" ? CapabilityCard : null,"
       + " memoryGraphCard: typeof MemoryGraphCard === \"function\" ? MemoryGraphCard : null,"
+      + " graphCanvas: typeof GraphCanvas === \"function\" ? GraphCanvas : null,"
       + " brainPanel: typeof BrainPanel === \"function\" ? BrainPanel : null"
       + " }; " + marker,
   )
@@ -535,22 +536,16 @@ test("图谱卡片有刷新与重建两个按钮", () => {
   ok(labels.includes("重建图谱"), "要有重建按钮，实际 " + JSON.stringify(labels))
 })
 
-test("图谱卡片画布不是空元素", () => {
-  const node = graphCard()
-  const canvases = []
-  const walk = (n) => {
-    if (!n || typeof n !== "object") return
-    if (Array.isArray(n)) return n.forEach(walk)
-    if (n.type === "canvas") canvases.push(n)
-    if (n.props && n.props.children !== undefined) {
-      const kids = n.props.children
-      if (Array.isArray(kids)) kids.forEach(walk)
-      else walk(kids)
-    }
-  }
-  walk(node)
-  ok(canvases.length === 1, "应该正好一个 canvas，实际 " + canvases.length)
-  ok(canvases[0].props.style.height === "340px", "画布要有高度")
+test("图谱卡片空图时给提示，不画空画布", () => {
+  const text = renderText(graphCard())
+  ok(text.includes("还没有图谱数据"), "空图时要说清楚，实际 " + text.slice(0, 160))
+})
+
+test("GraphCanvas 是一个有高度的 canvas", () => {
+  const node = cards2.graphCanvas({ graph: { nodes: [], edges: [] }, height: 340 })
+  ok(node && node.type === "canvas", "应该渲染 canvas，实际 " + (node && node.type))
+  ok(node.props.style.height === "340px", "画布要有高度，实际 " + (node.props.style && node.props.style.height))
+  ok(node.props.style.cursor === "crosshair", "画布上应该能 hover 探节点")
 })
 
 test("没有候选时也给说明，不是一片空白", () => {
