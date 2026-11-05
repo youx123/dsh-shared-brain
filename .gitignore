@@ -1,5 +1,16 @@
 node_modules/
-*.tgz
-.DS_Store
-Thumbs.db
 *.log
+
+# 本地备份（改文件前留的，不进仓库）
+backup-*/
+
+# 打包产物
+*.vsix
+*.tgz
+
+# 系统垃圾
+Thumbs.db
+.DS_Store
+desktop.ini
+# 含本机 PAT 的本地检查脚本，绝不入版本库
+tools/check-0101-b.mjs
