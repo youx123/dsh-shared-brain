@@ -12,3 +12,5 @@ backup-*/
 Thumbs.db
 .DS_Store
 desktop.ini
+# 含本机 PAT 的本地检查脚本，绝不入版本库
+tools/check-0101-b.mjs
