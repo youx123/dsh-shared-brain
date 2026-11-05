@@ -293,6 +293,71 @@ test('readGraph：文件不存在返回 null', () => {
   assert.equal(G.readGraph(join(SANDBOX, 'nope', 'graph.json')), null)
 })
 
+// ------------------------------------------------------ 性能 / 枢纽实体阻尼
+
+test('readGraph：同文件二次读命中缓存（不再重新解析）', () => {
+  const graph = G.buildGraph([entry('c1', '缓存测试 记忆图谱缓存')], { now: NOW })
+  G.writeGraph(graph)
+  const first = G.readGraph()
+  const second = G.readGraph()
+  assert.ok(first)
+  // 命中缓存时返回的是同一个对象引用；重新解析会得到新对象
+  assert.equal(first, second)
+})
+
+test('readGraph：文件被外部改写后缓存失效', () => {
+  const graph = G.buildGraph([entry('c2', '缓存失效 记忆图谱')], { now: NOW })
+  const file = G.writeGraph(graph) && G.graphFile()
+  const first = G.readGraph(file)
+  assert.ok(first)
+  writeFileSync(file, JSON.stringify({ ...first, nodes: [] }, null, 2), 'utf8')
+  const second = G.readGraph(file)
+  assert.notEqual(first, second)
+  assert.equal(second.nodes.length, 0)
+})
+
+test('expandWithNeighbors：枢纽实体按 1/sqrt(度数) 阻尼，分数低于不加阻尼', () => {
+  // hub 实体被 4 条记忆共用，leaf 实体只被 2 条共用
+  const entries = [
+    entry('h1', '一号记录', { tags: ['hub'] }),
+    entry('h2', '二号记录', { tags: ['hub'] }),
+    entry('h3', '三号记录', { tags: ['hub'] }),
+    entry('h4', '四号记录', { tags: ['hub'] }),
+  ]
+  const graph = G.buildGraph(entries, { now: NOW, cooccurThreshold: 2 })
+  const index = new Map(entries.map((e) => [e.id, e]))
+  const damped = G.expandWithNeighbors([{ entry: entries[0], score: 10 }], graph, index, { limit: 5 })
+  const plain = G.expandWithNeighbors([{ entry: entries[0], score: 10 }], graph, index, { limit: 5, hubDamping: false })
+  assert.ok(damped.neighbors.length > 0, '应该带出邻居')
+  assert.equal(damped.neighbors[0].viaKind, 'entity', '关掉共现后邻居只能来自实体桥')
+  const maxDamped = damped.neighbors[0].score
+  const maxPlain = plain.neighbors[0].score
+  assert.ok(maxDamped < maxPlain, `阻尼后应更小：${maxDamped} < ${maxPlain}`)
+})
+
+test('expandWithNeighbors：同一实体最多带 maxPerEntity 条邻居', () => {
+  const entries = [
+    entry('p1', '一号记录', { tags: ['hub'] }),
+    entry('p2', '二号记录', { tags: ['hub'] }),
+    entry('p3', '三号记录', { tags: ['hub'] }),
+    entry('p4', '四号记录', { tags: ['hub'] }),
+  ]
+  const graph = G.buildGraph(entries, { now: NOW, cooccurThreshold: 2 })
+  const index = new Map(entries.map((e) => [e.id, e]))
+  const out = G.expandWithNeighbors([{ entry: entries[0], score: 10 }], graph, index, { limit: 5, maxPerEntity: 1 })
+  const viaHub = out.neighbors.filter((n) => n.viaEntity === 'hub')
+  assert.ok(viaHub.length <= 1, `同一实体不应超过 1 条，实际 ${viaHub.length}`)
+})
+
+test('writeGraph：落盘后直接进缓存，读回不再触发解析', () => {
+  const graph = G.buildGraph([entry('w1', '写盘缓存 记忆图谱')], { now: NOW })
+  const payload = G.writeGraph(graph)
+  const back = G.readGraph()
+  assert.ok(back)
+  assert.equal(back.nodes.length, payload.nodes.length)
+  assert.equal(back.stats.memories, payload.stats.memories)
+})
+
 // ---------------------------------------------------------------- 真实库冒烟
 
 test('真实记忆库：能建图且不炸', () => {
