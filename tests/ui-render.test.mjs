@@ -559,60 +559,6 @@ test("没有候选时也给说明，不是一片空白", () => {
   ok(text.includes("可恢复"), "要说明能恢复")
 })
 
-group("记忆图谱卡片（2026-11-05）")
-
-function graphCard() {
-  return cards2.memoryGraphCard({ t: tZh, busy: false })
-}
-
-test("MemoryGraphCard 渲染不抛错", () => {
-  const text = renderText(graphCard())
-  ok(!text.includes("[渲染出错:"), "渲染出错：" + text.slice(0, 200))
-})
-
-test("图谱卡片说清楚蓝点/橙点是什么", () => {
-  const text = renderText(graphCard())
-  ok(text.includes("蓝点是记忆"), "要说明蓝点代表记忆")
-  ok(text.includes("橙点是实体"), "要说明橙点代表实体")
-})
-
-test("图谱卡片明确说归档不删文本", () => {
-  const text = renderText(graphCard())
-  ok(text.includes("归档只打标记"), "要说明归档只打标记")
-  ok(text.includes("文本不会被删"), "要说明文本不会被删")
-})
-
-test("图谱卡片有刷新与重建两个按钮", () => {
-  const buttons = buttonsOf(graphCard())
-  const labels = buttons.map((b) => b.children)
-  ok(labels.includes("刷新"), "要有刷新按钮，实际 " + JSON.stringify(labels))
-  ok(labels.includes("重建图谱"), "要有重建按钮，实际 " + JSON.stringify(labels))
-})
-
-test("图谱卡片画布不是空元素", () => {
-  const node = graphCard()
-  const canvases = []
-  const walk = (n) => {
-    if (!n || typeof n !== "object") return
-    if (Array.isArray(n)) return n.forEach(walk)
-    if (n.type === "canvas") canvases.push(n)
-    if (n.props && n.props.children !== undefined) {
-      const kids = n.props.children
-      if (Array.isArray(kids)) kids.forEach(walk)
-      else walk(kids)
-    }
-  }
-  walk(node)
-  ok(canvases.length === 1, "应该正好一个 canvas，实际 " + canvases.length)
-  ok(canvases[0].props.style.height === "340px", "画布要有高度")
-})
-
-test("没有候选时也给说明，不是一片空白", () => {
-  const text = renderText(graphCard())
-  ok(text.includes("归档候选"), "要有归档候选这一节")
-  ok(text.includes("可恢复"), "要说明能恢复")
-})
-
 console.log(`\n${passed} 通过 / ${failed} 失败`)
 if (failed > 0) {
   console.log("\n失败明细：")
