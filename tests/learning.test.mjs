@@ -1,5 +1,12 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
+import { mkdtempSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+
+// 自主学习配置现在存在 SQLite 的 kv 键里，测试必须隔离，别动真实库
+const SANDBOX = mkdtempSync(join(tmpdir(), 'learn-test-'))
+process.env.DSH_HOME = SANDBOX
 
 import {
   DEFAULT_LEARNING,
@@ -17,6 +24,27 @@ import {
   KIND_SOURCE_REF,
   LEARN_KINDS,
 } from '../lib/learning.js'
+
+import { readLearningConfig, writeLearningConfig } from '../lib/learning.js'
+
+test('配置存在独立 kv 键里，能扛住重启', () => {
+  assert.equal(readLearningConfig(), null, '干净沙箱里没有配置')
+  writeLearningConfig({ enabled: true, perDay: 5 })
+  const back = readLearningConfig()
+  assert.equal(back.enabled, true)
+  assert.equal(back.perDay, 5)
+  // 独立键优先于模块桶里的老值
+  const cfg = learningConfig({ knowledge: { learning: { enabled: false } } })
+  assert.equal(cfg.enabled, true)
+  // 只改一项不抹掉别的
+  writeLearningConfig({ maxPerTurn: 3 })
+  const back2 = readLearningConfig()
+  assert.equal(back2.perDay, 5)
+  assert.equal(back2.maxPerTurn, 3)
+  // 关掉也落盘
+  writeLearningConfig({ enabled: false })
+  assert.equal(readLearningConfig().enabled, false)
+})
 
 test('默认是关闭的（多一次模型调用，得老大显式打开）', () => {
   assert.equal(DEFAULT_LEARNING.enabled, false)
@@ -209,3 +237,14 @@ test('配置能改表达类每轮上限', () => {
   ]
   assert.equal(pickNewCandidates(cands, [], { limit: 5, config: cfg }).length, 2)
 })
+try {
+  const { closeDb } = await import('../lib/db.js')
+  closeDb()
+} catch {
+  /* 没装 db 就跳过 */
+}
+try {
+  rmSync(SANDBOX, { recursive: true, force: true })
+} catch {
+  /* 清理失败不影响结论 */
+}
