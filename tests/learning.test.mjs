@@ -14,6 +14,8 @@ import {
   normalizeForDedupe,
   similarity,
   pickNewCandidates,
+  KIND_SOURCE_REF,
+  LEARN_KINDS,
 } from '../lib/learning.js'
 
 test('默认是关闭的（多一次模型调用，得老大显式打开）', () => {
@@ -83,7 +85,9 @@ test('parseLearned 坏 JSON 返回空数组而不是抛错', () => {
 })
 
 test('parseLearned 支持纯字符串数组', () => {
-  assert.deepEqual(parseLearned('["一句话知识，够长够完整"]'), [{ text: '一句话知识，够长够完整', tags: [] }])
+  assert.deepEqual(parseLearned('["一句话知识，够长够完整"]'), [
+    { text: '一句话知识，够长够完整', tags: [], kind: 'fact' },
+  ])
 })
 
 test('looksWorthKeeping 拒收过程话', () => {
@@ -155,4 +159,53 @@ test('pickNewCandidates 尊重 limit', () => {
 test('pickNewCandidates 过滤掉不该收的', () => {
   const picked = pickNewCandidates([{ text: '我这就去查一下' }, { text: '嗯' }], [], { limit: 3 })
   assert.equal(picked.length, 0)
+})
+
+test('两类积累：kind 只有 fact 和 style', () => {
+  assert.deepEqual([...LEARN_KINDS].sort(), ['fact', 'style'])
+  assert.equal(KIND_SOURCE_REF.fact, '自主学习')
+  assert.equal(KIND_SOURCE_REF.style, '表达积累')
+})
+
+test('parseLearned 认 kind，写错的按事实处理', () => {
+  const raw = JSON.stringify([
+    { kind: 'fact', text: '一条事实性的知识点，足够长足够完整。', tags: ['测试'] },
+    { kind: 'style', text: '写景用「先远后近」起笔，例如：山色入帘青。', tags: ['写景'] },
+    { kind: 'nonsense', text: 'kind 写错的应该按事实处理，别丢掉。' },
+  ])
+  const out = parseLearned(raw)
+  assert.equal(out.length, 3)
+  assert.equal(out[0].kind, 'fact')
+  assert.equal(out[1].kind, 'style')
+  assert.equal(out[2].kind, 'fact')
+})
+
+test('looksWorthKeeping：表达类允许短句，但必须含中文', () => {
+  assert.equal(looksWorthKeeping('以小见大，从一片瓦写一座城。', DEFAULT_LEARNING, 'style'), true)
+  assert.equal(looksWorthKeeping('短句。', DEFAULT_LEARNING, 'style'), false)
+  assert.equal(looksWorthKeeping('A short english sentence here.', DEFAULT_LEARNING, 'style'), false)
+})
+
+test('pickNewCandidates：表达类每轮最多 1 条，事实类额度不被抢光', () => {
+  const cands = [
+    { kind: 'style', text: '写景先远后近，例如：远山如黛，近水含烟。' },
+    { kind: 'style', text: '收束用短句压住节奏，例如：天就亮了。' },
+    { kind: 'style', text: '转折先铺景再点破，例如：这般光景，可惜无人看。' },
+    { kind: 'fact', text: '勾股定理说直角三角形两直角边平方和等于斜边平方。' },
+  ]
+  const picked = pickNewCandidates(cands, [], { limit: 3 })
+  const styles = picked.filter((p) => p.kind === 'style')
+  const facts = picked.filter((p) => p.kind === 'fact')
+  assert.equal(styles.length, 1)
+  assert.equal(facts.length, 1)
+})
+
+test('配置能改表达类每轮上限', () => {
+  const cfg = learningConfig({ knowledge: { learning: { maxStylePerTurn: 2 } } })
+  assert.equal(cfg.maxStylePerTurn, 2)
+  const cands = [
+    { kind: 'style', text: '写景先远后近，例如：远山如黛，近水含烟。' },
+    { kind: 'style', text: '收束用短句压住节奏，例如：天就亮了。' },
+  ]
+  assert.equal(pickNewCandidates(cands, [], { limit: 5, config: cfg }).length, 2)
 })
