@@ -365,17 +365,16 @@ test('真实记忆库：能建图且不炸', () => {
   void realHome
   // 用沙箱里手工造一份库，模拟真实场景：噪声 tag + 有意义 tag + 老记忆
   mkdirSync(join(SANDBOX, 'storages', 'dsh-shared-brain'), { recursive: true })
-  writeFileSync(
-    join(SANDBOX, 'storages', 'dsh-shared-brain', 'memory.json'),
-    JSON.stringify({
-      version: 1,
-      entries: [
-        { id: 'a', text: '共享大脑的图谱能力要接记忆节点', tags: ['项目:shared-brain'], hits: 3, updatedAt: NOW },
-        { id: 'b', text: '共享大脑的图谱能力要接记忆节点', tags: ['dsh', 'json'], hits: 0, updatedAt: NOW - 500 * DAY },
-      ],
-    }),
-    'utf8',
-  )
+  // 2026-11-06：readStore 现在优先读 SQLite，直接写 memory.json 已经不管用了。
+  // 走统一写入口径（writeStore 会落库），符合新的存储契约。
+  S.writeStore({
+    version: 1,
+    updatedAt: NOW,
+    entries: [
+      { id: 'a', text: '共享大脑的图谱能力要接记忆节点', tags: ['项目:shared-brain'], hits: 3, updatedAt: NOW },
+      { id: 'b', text: '共享大脑的图谱能力要接记忆节点', tags: ['dsh', 'json'], hits: 0, updatedAt: NOW - 500 * DAY },
+    ],
+  })
   const store = S.readStore()
   const graph = G.buildGraph(store.entries, { now: NOW })
   assert.ok(graph.nodes.length >= 2)
