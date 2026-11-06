@@ -97,7 +97,42 @@ if (after !== entries.length) {
 }
 
 // 模块配置整份存一条 kv（结构化配置不多，整份存最省事，也不会因为白名单漏字段）
-if (modules && typeof modules === 'object') setValue('modules', modules)
+if (modules && typeof modules === 'object') {
+  // 补缺：扁平库有的条目，模块桶里没有就补进去（knowledge 桶曾经空过）。
+  // 只增不减 —— bottomline 这类桶里独有的条目不能被清掉。
+  const MODULE_KEYS = ['bottomline', 'cognition', 'emotion', 'instinct', 'knowledge']
+  let patched = 0
+  for (const key of MODULE_KEYS) {
+    if (!modules[key] || !Array.isArray(modules[key].items)) continue
+    const ids = new Set(modules[key].items.map((i) => i.id))
+    for (const e of entries) {
+      if (e.module !== key || ids.has(e.id)) continue
+      modules[key].items.push({
+        id: e.id,
+        text: e.text,
+        weight: e.weight,
+        tags: e.tags ?? [],
+        hits: e.hits ?? 0,
+        pinned: e.pinned === true,
+        source: e.source === 'manual' ? 'manual' : e.source === 'sync' ? 'sync' : 'auto',
+        lifetime: e.lifetime === 'temporary' ? 'temporary' : 'permanent',
+        expiresAt: e.expiresAt ?? 0,
+        ttlMs: e.ttlMs ?? 0,
+        scope: e.scope ?? 'global',
+        scopePath: e.scopePath ?? '',
+        scopeSession: e.scopeSession ?? '',
+        supersedes: e.supersedes ?? '',
+        createdAt: e.createdAt ?? 0,
+        updatedAt: e.updatedAt ?? 0,
+        ...(key === 'knowledge' && e.sourceRef ? { sourceRef: e.sourceRef } : {}),
+      })
+      ids.add(e.id)
+      patched += 1
+    }
+  }
+  if (patched > 0) console.log(`模块桶补缺 = ${patched} 条（只增不减，兜住 knowledge 桶为空的情况）`)
+  setValue('modules', modules)
+}
 
 writeMeta('migrated_from', 'memory.json+modules.json')
 writeMeta('migrated_at', new Date().toISOString())
