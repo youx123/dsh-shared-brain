@@ -290,7 +290,9 @@ test('writeGraph + readGraph：往返不丢', () => {
 })
 
 test('readGraph：文件不存在返回 null', () => {
-  assert.equal(G.readGraph(join(SANDBOX, 'nope', 'graph.json')), null)
+  // source: 'file' 强制走文件 —— 不加的话会优先读 SQLite 表，
+  // 而表是全局的，别的用例写过图就在这里拿到数据了。
+  assert.equal(G.readGraph(join(SANDBOX, 'nope', 'graph.json'), { source: 'file' }), null)
 })
 
 // ------------------------------------------------------ 性能 / 枢纽实体阻尼
@@ -308,10 +310,10 @@ test('readGraph：同文件二次读命中缓存（不再重新解析）', () =>
 test('readGraph：文件被外部改写后缓存失效', () => {
   const graph = G.buildGraph([entry('c2', '缓存失效 记忆图谱')], { now: NOW })
   const file = G.writeGraph(graph) && G.graphFile()
-  const first = G.readGraph(file)
+  const first = G.readGraph(file, { source: 'file' })
   assert.ok(first)
   writeFileSync(file, JSON.stringify({ ...first, nodes: [] }, null, 2), 'utf8')
-  const second = G.readGraph(file)
+  const second = G.readGraph(file, { source: 'file' })
   assert.notEqual(first, second)
   assert.equal(second.nodes.length, 0)
 })
