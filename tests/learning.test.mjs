@@ -1,5 +1,12 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
+import { mkdtempSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+
+// 自主学习配置现在存在 SQLite 的 kv 键里，测试必须隔离，别动真实库
+const SANDBOX = mkdtempSync(join(tmpdir(), 'learn-test-'))
+process.env.DSH_HOME = SANDBOX
 
 import {
   DEFAULT_LEARNING,
@@ -14,7 +21,30 @@ import {
   normalizeForDedupe,
   similarity,
   pickNewCandidates,
+  KIND_SOURCE_REF,
+  LEARN_KINDS,
 } from '../lib/learning.js'
+
+import { readLearningConfig, writeLearningConfig } from '../lib/learning.js'
+
+test('配置存在独立 kv 键里，能扛住重启', () => {
+  assert.equal(readLearningConfig(), null, '干净沙箱里没有配置')
+  writeLearningConfig({ enabled: true, perDay: 5 })
+  const back = readLearningConfig()
+  assert.equal(back.enabled, true)
+  assert.equal(back.perDay, 5)
+  // 独立键优先于模块桶里的老值
+  const cfg = learningConfig({ knowledge: { learning: { enabled: false } } })
+  assert.equal(cfg.enabled, true)
+  // 只改一项不抹掉别的
+  writeLearningConfig({ maxPerTurn: 3 })
+  const back2 = readLearningConfig()
+  assert.equal(back2.perDay, 5)
+  assert.equal(back2.maxPerTurn, 3)
+  // 关掉也落盘
+  writeLearningConfig({ enabled: false })
+  assert.equal(readLearningConfig().enabled, false)
+})
 
 test('默认是关闭的（多一次模型调用，得老大显式打开）', () => {
   assert.equal(DEFAULT_LEARNING.enabled, false)
@@ -83,7 +113,9 @@ test('parseLearned 坏 JSON 返回空数组而不是抛错', () => {
 })
 
 test('parseLearned 支持纯字符串数组', () => {
-  assert.deepEqual(parseLearned('["一句话知识，够长够完整"]'), [{ text: '一句话知识，够长够完整', tags: [] }])
+  assert.deepEqual(parseLearned('["一句话知识，够长够完整"]'), [
+    { text: '一句话知识，够长够完整', tags: [], kind: 'fact' },
+  ])
 })
 
 test('looksWorthKeeping 拒收过程话', () => {
@@ -156,3 +188,63 @@ test('pickNewCandidates 过滤掉不该收的', () => {
   const picked = pickNewCandidates([{ text: '我这就去查一下' }, { text: '嗯' }], [], { limit: 3 })
   assert.equal(picked.length, 0)
 })
+
+test('两类积累：kind 只有 fact 和 style', () => {
+  assert.deepEqual([...LEARN_KINDS].sort(), ['fact', 'style'])
+  assert.equal(KIND_SOURCE_REF.fact, '自主学习')
+  assert.equal(KIND_SOURCE_REF.style, '表达积累')
+})
+
+test('parseLearned 认 kind，写错的按事实处理', () => {
+  const raw = JSON.stringify([
+    { kind: 'fact', text: '一条事实性的知识点，足够长足够完整。', tags: ['测试'] },
+    { kind: 'style', text: '写景用「先远后近」起笔，例如：山色入帘青。', tags: ['写景'] },
+    { kind: 'nonsense', text: 'kind 写错的应该按事实处理，别丢掉。' },
+  ])
+  const out = parseLearned(raw)
+  assert.equal(out.length, 3)
+  assert.equal(out[0].kind, 'fact')
+  assert.equal(out[1].kind, 'style')
+  assert.equal(out[2].kind, 'fact')
+})
+
+test('looksWorthKeeping：表达类允许短句，但必须含中文', () => {
+  assert.equal(looksWorthKeeping('以小见大，从一片瓦写一座城。', DEFAULT_LEARNING, 'style'), true)
+  assert.equal(looksWorthKeeping('短句。', DEFAULT_LEARNING, 'style'), false)
+  assert.equal(looksWorthKeeping('A short english sentence here.', DEFAULT_LEARNING, 'style'), false)
+})
+
+test('pickNewCandidates：表达类每轮最多 1 条，事实类额度不被抢光', () => {
+  const cands = [
+    { kind: 'style', text: '写景先远后近，例如：远山如黛，近水含烟。' },
+    { kind: 'style', text: '收束用短句压住节奏，例如：天就亮了。' },
+    { kind: 'style', text: '转折先铺景再点破，例如：这般光景，可惜无人看。' },
+    { kind: 'fact', text: '勾股定理说直角三角形两直角边平方和等于斜边平方。' },
+  ]
+  const picked = pickNewCandidates(cands, [], { limit: 3 })
+  const styles = picked.filter((p) => p.kind === 'style')
+  const facts = picked.filter((p) => p.kind === 'fact')
+  assert.equal(styles.length, 1)
+  assert.equal(facts.length, 1)
+})
+
+test('配置能改表达类每轮上限', () => {
+  const cfg = learningConfig({ knowledge: { learning: { maxStylePerTurn: 2 } } })
+  assert.equal(cfg.maxStylePerTurn, 2)
+  const cands = [
+    { kind: 'style', text: '写景先远后近，例如：远山如黛，近水含烟。' },
+    { kind: 'style', text: '收束用短句压住节奏，例如：天就亮了。' },
+  ]
+  assert.equal(pickNewCandidates(cands, [], { limit: 5, config: cfg }).length, 2)
+})
+try {
+  const { closeDb } = await import('../lib/db.js')
+  closeDb()
+} catch {
+  /* 没装 db 就跳过 */
+}
+try {
+  rmSync(SANDBOX, { recursive: true, force: true })
+} catch {
+  /* 清理失败不影响结论 */
+}
