@@ -95,12 +95,8 @@ test('splitPoints 丢掉表格分隔行与纯符号行', () => {
 })
 
 test('splitPoints 跳过标题行与引用行（结构不是知识）', () => {
-  const out = splitPoints('# 大标题
-## 小节
-> 引用一句
-正文一句
-- 要点一句')
-  assert.deepEqual(out, ['正文一句', '要点一句'])
+  const src = ['# 大标题', '## 小节', '> 引用一句', '正文一句', '- 要点一句'].join('\n')
+  assert.deepEqual(splitPoints(src), ['正文一句', '要点一句'])
 })
 
 test('splitPoints 空输入返回空数组', () => {
