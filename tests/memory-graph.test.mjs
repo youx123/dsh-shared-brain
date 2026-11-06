@@ -376,7 +376,10 @@ test('真实记忆库：能建图且不炸', () => {
       // 显式写 module：走 SQLite 时没有 normalizeStore 帮忙补默认值了，
       // 缺 module 的条目在归档判据里会被当成"不认识的模块"直接跳过。
       { id: 'a', module: 'cognition', text: '共享大脑的图谱能力要接记忆节点', tags: ['项目:shared-brain'], hits: 3, updatedAt: NOW },
-      { id: 'b', module: 'cognition', text: '共享大脑的图谱能力要接记忆节点', tags: ['dsh', 'json'], hits: 0, updatedAt: NOW - 500 * DAY },
+      // 2026-11-06：正文关键词也进实体之后，两条文本一样的记忆会通过共用词连成边，
+      // 就不再「孤立」了 —— 而孤立正是进归档候选的前提。这条老的换成不相干内容，
+      // 才是用例真正想验的「又老、又没人理、又孤立」。
+      { id: 'b', module: 'cognition', text: '完全不搭界的另一句，与上面没有共同点', tags: ['dsh', 'json'], hits: 0, updatedAt: NOW - 500 * DAY },
     ],
   })
   const store = S.readStore()
