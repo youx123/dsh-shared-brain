@@ -74,8 +74,10 @@ test('splitPoints 按行切', () => {
   assert.deepEqual(out, ['第一点', '第二点', '第三点'])
 })
 
-test('splitPoints 去掉 markdown 标题符号', () => {
-  assert.deepEqual(splitPoints('## 第三章\n内容一句'), ['第三章', '内容一句'])
+test('splitPoints 丢掉 markdown 标题行（标题是结构，不是知识）', () => {
+  // 早期版本是把 "## 第三章" 剥成 "第三章" 留着；后来改成整行丢掉 ——
+  // 书名和章节由 sourceRef / 索引承担，正文里再塞一遍只会污染召回。
+  assert.deepEqual(splitPoints('## 第三章\n内容一句'), ['内容一句'])
 })
 
 test('splitPoints 长段落按句切开且不超长', () => {
