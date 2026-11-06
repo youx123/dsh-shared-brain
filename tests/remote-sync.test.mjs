@@ -622,7 +622,11 @@ try {
     assert(result.error.includes("仓库"), `错误里说明仓库没填：${result.error}`)
   })
 } finally {
-  rmSync(ROOT, { recursive: true, force: true })
+  try {
+    rmSync(ROOT, { recursive: true, force: true })
+  } catch {
+    /* Windows 上 SQLite 的 WAL 文件可能还被持有；清理失败不影响测试结论 */
+  }
 }
 
 /* ------------------------------------------------------------------ */

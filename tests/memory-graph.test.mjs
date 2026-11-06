@@ -290,7 +290,9 @@ test('writeGraph + readGraph：往返不丢', () => {
 })
 
 test('readGraph：文件不存在返回 null', () => {
-  assert.equal(G.readGraph(join(SANDBOX, 'nope', 'graph.json')), null)
+  // source: 'file' 强制走文件 —— 不加的话会优先读 SQLite 表，
+  // 而表是全局的，别的用例写过图就在这里拿到数据了。
+  assert.equal(G.readGraph(join(SANDBOX, 'nope', 'graph.json'), { source: 'file' }), null)
 })
 
 // ------------------------------------------------------ 性能 / 枢纽实体阻尼
@@ -308,10 +310,10 @@ test('readGraph：同文件二次读命中缓存（不再重新解析）', () =>
 test('readGraph：文件被外部改写后缓存失效', () => {
   const graph = G.buildGraph([entry('c2', '缓存失效 记忆图谱')], { now: NOW })
   const file = G.writeGraph(graph) && G.graphFile()
-  const first = G.readGraph(file)
+  const first = G.readGraph(file, { source: 'file' })
   assert.ok(first)
   writeFileSync(file, JSON.stringify({ ...first, nodes: [] }, null, 2), 'utf8')
-  const second = G.readGraph(file)
+  const second = G.readGraph(file, { source: 'file' })
   assert.notEqual(first, second)
   assert.equal(second.nodes.length, 0)
 })
@@ -365,17 +367,21 @@ test('真实记忆库：能建图且不炸', () => {
   void realHome
   // 用沙箱里手工造一份库，模拟真实场景：噪声 tag + 有意义 tag + 老记忆
   mkdirSync(join(SANDBOX, 'storages', 'dsh-shared-brain'), { recursive: true })
-  writeFileSync(
-    join(SANDBOX, 'storages', 'dsh-shared-brain', 'memory.json'),
-    JSON.stringify({
-      version: 1,
-      entries: [
-        { id: 'a', text: '共享大脑的图谱能力要接记忆节点', tags: ['项目:shared-brain'], hits: 3, updatedAt: NOW },
-        { id: 'b', text: '共享大脑的图谱能力要接记忆节点', tags: ['dsh', 'json'], hits: 0, updatedAt: NOW - 500 * DAY },
-      ],
-    }),
-    'utf8',
-  )
+  // 2026-11-06：readStore 现在优先读 SQLite，直接写 memory.json 已经不管用了。
+  // 走统一写入口径（writeStore 会落库），符合新的存储契约。
+  S.writeStore({
+    version: 1,
+    updatedAt: NOW,
+    entries: [
+      // 显式写 module：走 SQLite 时没有 normalizeStore 帮忙补默认值了，
+      // 缺 module 的条目在归档判据里会被当成"不认识的模块"直接跳过。
+      { id: 'a', module: 'cognition', text: '共享大脑的图谱能力要接记忆节点', tags: ['项目:shared-brain'], hits: 3, updatedAt: NOW },
+      // 2026-11-06：正文关键词也进实体之后，两条文本一样的记忆会通过共用词连成边，
+      // 就不再「孤立」了 —— 而孤立正是进归档候选的前提。这条老的换成不相干内容，
+      // 才是用例真正想验的「又老、又没人理、又孤立」。
+      { id: 'b', module: 'cognition', text: '完全不搭界的另一句，与上面没有共同点', tags: ['dsh', 'json'], hits: 0, updatedAt: NOW - 500 * DAY },
+    ],
+  })
   const store = S.readStore()
   const graph = G.buildGraph(store.entries, { now: NOW })
   assert.ok(graph.nodes.length >= 2)

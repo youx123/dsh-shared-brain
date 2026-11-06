@@ -362,7 +362,17 @@ await test("状态里带 packsRejected，设置页能显示", () => {
   ok(cli.includes("emoji-rejected-box"), "设置页少不合格包的区块")
 })
 
-rmSync(PACK_ROOT, { recursive: true, force: true })
+try {
+  const { closeDb } = await import('../lib/db.js')
+  closeDb()
+} catch {
+  /* 没有 db.js 就跳过 */
+}
+try {
+  rmSync(PACK_ROOT, { recursive: true, force: true })
+} catch {
+  /* Windows 上 WAL 可能还被持有，清理失败不影响测试结论 */
+}
 
 console.log(`\n${passed} 通过 / ${failed} 失败`)
 if (failed > 0) {
