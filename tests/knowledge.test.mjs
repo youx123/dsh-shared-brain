@@ -89,6 +89,11 @@ test('splitPoints 去重', () => {
   assert.deepEqual(splitPoints('同一句\n同一句'), ['同一句'])
 })
 
+test('splitPoints 丢掉表格分隔行与纯符号行', () => {
+  const out = splitPoints('正常的句子\n|---|---|---|\n---\n***\n😀😀\n另一句')
+  assert.deepEqual(out, ['正常的句子', '另一句'])
+})
+
 test('splitPoints 空输入返回空数组', () => {
   assert.deepEqual(splitPoints('   '), [])
   assert.deepEqual(splitPoints(null), [])
