@@ -25,7 +25,8 @@ const {
   passesKnowledgeThreshold,
 } = await import('../lib/knowledge.js')
 const { archiveCandidates } = await import('../lib/memory-graph.js')
-const { defaultModules, MEMORY_MODULES, MODULE_LABELS } = await import('../lib/modules.js')
+const modulesMod = await import('../lib/modules.js')
+const { defaultModules, MEMORY_MODULES, MODULE_LABELS } = modulesMod
 const { normalizeStore } = await import('../lib/store.js')
 
 let pass = 0
@@ -211,6 +212,26 @@ test('normalizeStore 里的 knowledge 条目保留模块名', () => {
     entries: [{ id: 'k1', text: 't', module: 'knowledge', weight: 0.7 }],
   })
   assert.equal(store.entries[0].module, 'knowledge')
+})
+
+test('putModuleItem 入库时保住 sourceRef（否则写盘就丢了出处）', () => {
+  const { putModuleItem, defaultModules } = modulesMod
+  const modules = defaultModules()
+  putModuleItem(modules, 'knowledge', {
+    text: '缓存穿透用布隆过滤器',
+    weight: 0.7,
+    sourceRef: '《缓存实战》',
+    lifetime: 'permanent',
+  })
+  assert.equal(modules.knowledge.items.length, 1)
+  assert.equal(modules.knowledge.items[0].sourceRef, '《缓存实战》')
+})
+
+test('putModuleItem 只在 knowledge 模块保留 sourceRef', () => {
+  const { putModuleItem, defaultModules } = modulesMod
+  const modules = defaultModules()
+  putModuleItem(modules, 'cognition', { text: '一句话', sourceRef: '《不该在这》' })
+  assert.equal(modules.cognition.items[0].sourceRef, undefined)
 })
 
 rmSync(SANDBOX, { recursive: true, force: true })
