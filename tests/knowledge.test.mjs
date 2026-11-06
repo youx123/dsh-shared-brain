@@ -246,7 +246,17 @@ test('putModuleItem 只在 knowledge 模块保留 sourceRef', () => {
   assert.equal(modules.cognition.items[0].sourceRef, undefined)
 })
 
-rmSync(SANDBOX, { recursive: true, force: true })
+try {
+  const { closeDb } = await import('../lib/db.js')
+  closeDb()
+} catch {
+  /* 没有 db.js 就跳过 */
+}
+try {
+  rmSync(SANDBOX, { recursive: true, force: true })
+} catch {
+  /* Windows 上 WAL 可能还被持有，清理失败不影响测试结论 */
+}
 
 console.log(`\n通过 ${pass} / 失败 ${fail}\n`)
 if (fail > 0) process.exit(1)
