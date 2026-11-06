@@ -371,8 +371,10 @@ test('真实记忆库：能建图且不炸', () => {
     version: 1,
     updatedAt: NOW,
     entries: [
-      { id: 'a', text: '共享大脑的图谱能力要接记忆节点', tags: ['项目:shared-brain'], hits: 3, updatedAt: NOW },
-      { id: 'b', text: '共享大脑的图谱能力要接记忆节点', tags: ['dsh', 'json'], hits: 0, updatedAt: NOW - 500 * DAY },
+      // 显式写 module：走 SQLite 时没有 normalizeStore 帮忙补默认值了，
+      // 缺 module 的条目在归档判据里会被当成"不认识的模块"直接跳过。
+      { id: 'a', module: 'cognition', text: '共享大脑的图谱能力要接记忆节点', tags: ['项目:shared-brain'], hits: 3, updatedAt: NOW },
+      { id: 'b', module: 'cognition', text: '共享大脑的图谱能力要接记忆节点', tags: ['dsh', 'json'], hits: 0, updatedAt: NOW - 500 * DAY },
     ],
   })
   const store = S.readStore()
