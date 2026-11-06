@@ -698,5 +698,17 @@ if (failed > 0) {
   }
 }
 
-rmSync(SANDBOX, { recursive: true, force: true })
+// SQLite 连接可能还开着（WAL 文件被持有），Windows 上直接删会 EPERM。
+// 关掉连接再删；删不掉也不算测试失败 —— 临时目录交给系统清理。
+try {
+  const { closeDb } = await import('../lib/db.js')
+  closeDb()
+} catch {
+  /* 没装 db.js 就跳过 */
+}
+try {
+  rmSync(SANDBOX, { recursive: true, force: true })
+} catch {
+  /* 清理失败不影响测试结论 */
+}
 process.exit(failed > 0 ? 1 : 0)
