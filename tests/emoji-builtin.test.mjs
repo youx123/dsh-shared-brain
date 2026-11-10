@@ -121,12 +121,19 @@ await test("没有端口就不给（拿不到端口别瞎编）", () => {
   eq(B.renderBuiltinEmojiHint({ mode: "auto", limit: 3, keys: ["hug"] }, 0), "")
   eq(B.renderBuiltinEmojiHint({ mode: "auto", limit: 3, keys: ["hug"] }, undefined), "")
 })
-await test("按 limit 截断，且都是现成 markdown", () => {
+await test("候选摆出来最多 6 张，上限只写在说明里", () => {
+  // 2026-11-10：alt 改成「中文名·用途」，所以这里只认图片 URL 和文案。
   const hint = B.renderBuiltinEmojiHint({ mode: "auto", limit: 2, keys: ["hug", "sigh", "cheer"] }, 59635)
-  ok(hint.includes("![抱抱](http://127.0.0.1:59635/api/dsh-shared-brain/emoji/hug.gif)"), "缺抱抱 markdown")
-  ok(hint.includes("![好累]("), "缺好累 markdown")
-  ok(!hint.includes("加油"), "超过 limit 的 key 不该出现")
+  ok(hint.includes("/api/dsh-shared-brain/emoji/hug.gif)"), "缺抱抱 markdown：" + hint)
+  ok(hint.includes("/api/dsh-shared-brain/emoji/sigh.gif)"), "缺好累 markdown：" + hint)
+  ok(hint.includes("/api/dsh-shared-brain/emoji/cheer.gif)"), "候选里的第三张也该摆出来")
   ok(hint.includes("一轮最多 2 个"), "没说明上限")
+})
+await test("候选超过 6 个只摆 6 张", () => {
+  const keys = ["hug", "sigh", "cheer", "okay", "happy", "thinking", "approve", "playful"]
+  const hint = B.renderBuiltinEmojiHint({ mode: "auto", limit: 3, keys }, 59635)
+  const count = (hint.match(/!\[/g) ?? []).length
+  eq(count, 6)
 })
 await test("空 keys 直接空串", () => {
   eq(B.renderBuiltinEmojiHint({ mode: "auto", limit: 3, keys: [] }, 59635), "")

@@ -485,12 +485,12 @@ test("不再出现「启用 / 停用」这种状态动作两可的词", () => {
 
 test("卡片标题旁有汇总「已开启 N / M」", () => {
   const text = renderText(capCard({ network: { enabled: true }, agentive: { enabled: false } }))
-  ok(text.includes("已开启 1 / 2"), "汇总应为 已开启 1 / 2，实际：" + text.slice(0, 80))
+  ok(text.includes("已开启 1 / 3"), "汇总应为 已开启 1 / 3（能力卡片 2026-11-09 起是网络/自动互动/自主学习三张），实际：" + text.slice(0, 80))
 })
 
 test("按钮 title 写的是动作（点此关闭 / 点此开启），不重复状态", () => {
   const buttons = buttonsOf(capCard({ network: { enabled: true }, agentive: { enabled: false } }))
-  ok(buttons.length === 2, "两张能力卡片各一个按钮，实际 " + buttons.length)
+  ok(buttons.length === 3, "三张能力卡片各一个按钮，实际 " + buttons.length)
   ok(buttons[0].title === "点此关闭", "开启态 title 应为「点此关闭」，实际 " + buttons[0].title)
   ok(buttons[1].title === "点此开启", "关闭态 title 应为「点此开启」，实际 " + buttons[1].title)
 })
@@ -501,9 +501,9 @@ test("按钮带 aria-pressed，读屏也能知道开关状态", () => {
   ok(buttons[1]["aria-pressed"] === "false", "关闭态 aria-pressed 应为 false")
 })
 
-test("两个都开时汇总显示 2 / 2", () => {
+test("两个都开时汇总显示 2 / 3", () => {
   const text = renderText(capCard({ network: { enabled: true }, agentive: { enabled: true } }))
-  ok(text.includes("已开启 2 / 2"), "汇总应为 已开启 2 / 2")
+  ok(text.includes("已开启 2 / 3"), "汇总应为 已开启 2 / 3")
 })
 
 group("记忆图谱卡片（2026-11-05）")

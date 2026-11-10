@@ -149,12 +149,19 @@ test('rawDelta −3（提示词让模型给的日常档）能过显著性闸', (
   assert.equal(out.minor, false, '−3 应该算显著变化')
 })
 
-test('rawDelta −1 仍然算小波动（不刷屏）', () => {
+test('rawDelta −1 在默认门槛下算变化，调回 2 就仍算小波动', () => {
   const state = E.emptyMoodState()
   state.mood = 70
   state.dims = Object.fromEntries(E.DIMS.map(([k]) => [k, 0]))
+  // 2026-11-09 起默认 sigMoodRaw=1（老大拍板）：±1 也算一次变化，
+  // 「不刷屏」交给 injectPerDay=6 的每日上限兜，不再靠把门槛抬到 2。
   const out = E.applyMoodDelta(state, { moodDelta: -1, dims: {}, reason: '还行', confidence: 80 })
-  assert.equal(out.minor, true, '−1 不该打扰')
+  assert.equal(out.minor, false, '默认门槛下 −1 该算变化')
+  const state2 = E.emptyMoodState()
+  state2.mood = 70
+  state2.dims = Object.fromEntries(E.DIMS.map(([k]) => [k, 0]))
+  const old = E.applyMoodDelta(state2, { moodDelta: -1, dims: {}, reason: '还行', confidence: 80 }, { sigMoodRaw: 2 })
+  assert.equal(old.minor, true, '调回 2 之后 −1 仍是小波动')
 })
 
 test('显著变化能真的渲染出内容', () => {
