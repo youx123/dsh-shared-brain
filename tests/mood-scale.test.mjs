@@ -136,6 +136,23 @@ test('全维一样低 → 不写维度', () => {
   ok(!text.includes('、'), `不该出现维度列举：${text}`)
 })
 
+test('维度跟档位重名时只说一次（别写成「心情开心、开心、踏实」）', () => {
+  // 真实数据跑出来过：band 标签是「开心」，dims 里也有 happy → 叠词。
+  const text = E.renderMoodContext(moodState({ mood: 70, dims: { happy: 4, calm: 3 } }), {
+    mode: 'label',
+    now: Date.now(),
+  })
+  const times = (text.match(/开心/g) || []).length
+  eq(times, 1, `「开心」出现了 ${times} 次：${text}`)
+  ok(text.includes('踏实'), `另一维不该被一起吃掉：${text}`)
+})
+
+test('event 模式同样不叠词', () => {
+  const text = E.renderMoodContext(moodState({ mood: 70, dims: { happy: 4, calm: 3 } }), { now: Date.now() })
+  const times = (text.match(/开心/g) || []).length
+  eq(times, 1, `「开心」出现了 ${times} 次：${text}`)
+})
+
 // ────────────────────────────────────────────────────────────────────
 group('renderMoodHint · 点名也按相对量纲')
 // ────────────────────────────────────────────────────────────────────
