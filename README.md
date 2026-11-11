@@ -289,6 +289,7 @@ DSH 插件 `lib/cross-sync.js` 会监听上述文件；**从 Cursor inbound 拉�
 /shared-memory check              记忆体检：重复 / 缺出处 / 过期 / WAL 大小 / 建议（`health` 是别名）
 /shared-memory retag [dry|all]    给老条目补标签（默认只补知识类）
 /shared-memory junk               可清理的文件有哪些：按类给数量、大小、最早时间（只读，不删；`clean` 是别名）
+/shared-memory cursor-export <目录> [prune] [dry]  把底线与钉住的记忆导出成 Cursor 规则（只写自己带标记的文件）
 /shared-memory mood               查看心情判定状态与今日注入额度
 /shared-memory mood on|off        开关心情驱动
 /shared-memory mood-config <键> <值>  改门槛与额度（sigMoodRaw / injectPerDay / judgePerDay）
