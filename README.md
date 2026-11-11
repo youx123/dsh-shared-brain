@@ -183,19 +183,29 @@ DSH 设置页里有一节「**共享大脑**」，点开就能配置：
 
 ### 服务端接口
 
-界面通过这两个 HTTP 端点与插件通信（仅监听回环地址）：
+界面通过下面几个 HTTP 路由与插件通信（都只认真本机回环来源，且拒绝跨站请求）：
 
 ```
-GET  /api/dsh-shared-brain/status   当前模块配置 + 记忆快照
-POST /api/dsh-shared-brain/mutate   {"action":"...", ...}
+GET  /api/dsh-shared-brain/status      当前模块配置 + 记忆快照 + 记忆体检
+POST /api/dsh-shared-brain/mutate      {"action":"...", ...}
+GET  /api/dsh-shared-brain/graph       记忆图谱（节点 / 边 / 候选）
+GET  /api/dsh-shared-brain/emoji/<key>.gif   内置表情包
+POST /api/dsh-shared-brain/learn       {"url":"..."} 或 {"text":"..."} 学一份材料
+GET  /api/dsh-shared-brain/pulse       主动互动的脉搏（给桌宠接茬用）
+```
 
-可用 action：
-setWeight / setEnabled / setVoice / setSpeech / clear /
-addItem / removeItem / pinItem / setLifetime / setAgentiveScope /
-setEmojiDir / setEmojiAuto / rescanEmoji / addEmoji /
-setItemScope / setAgentiveTimeWindow / setSessionPersona /
-setAgentiveInterval / runProactive /
-selectPersona / savePersona / deletePersona / searchMemory
+`mutate` 可用 action（按用途分组）：
+
+```
+模块与开关：setWeight / setEnabled / setLearning / learningStatus / setMoodConfig / resetMood
+条目管理：  addItem / addKnowledge / reviewKnowledge / knowledgeIndex / removeItem / pinItem
+            setLifetime / setItemScope / searchMemory / memoryCheck
+归档：      archiveCandidates / archiveItems / restoreItems
+说话方式：  setVoice / setSpeech / selectPersona / savePersona / deletePersona
+            setAgentiveMood / setEmojiSemantic / setEmojiDir / setEmojiAuto / rescanEmoji / addEmoji
+主动互动：  setAgentiveScope / setAgentiveInterval / setAgentiveTimeWindow / runProactive /
+            setSessionPersona / setPersonaSync / syncPersonaNow / setRemoteSync / syncNow / clear
+图谱：      graphInfo
 ```
 
 ## 与 Cursor「共享大脑」扩展协同（0.9.3+）
@@ -270,6 +280,19 @@ DSH 插件 `lib/cross-sync.js` 会监听上述文件；**从 Cursor inbound 拉�
 /shared-memory timewindow         查看自动互动的时间窗
 /shared-memory timewindow on|off [开始 结束]  开/关时间窗（跨午夜也行）
 /shared-memory search <关键词>     搜索记忆
+/shared-memory knowledge          知识库按书列出条数与前几个主题词
+/shared-memory knowledge stats    总条数 / 带出处 / 带标签 / 被召回过
+/shared-memory knowledge review   捞出久没更新、也没被用过的知识
+/shared-memory learn <网址>        抓网页学一份材料（结果事后推回会话）
+/shared-memory learn text <一段话>  直接从文字里提炼知识点
+/shared-memory check              记忆体检：重复 / 缺出处 / 过期 / WAL 大小 / 建议
+/shared-memory retag [dry|all]    给老条目补标签（默认只补知识类）
+/shared-memory mood               查看心情判定状态与今日注入额度
+/shared-memory mood on|off        开关心情驱动
+/shared-memory mood-config <键> <值>  改门槛与额度（sigMoodRaw / injectPerDay / judgePerDay）
+/shared-memory mood-reset         清掉心情状态重新开始
+/shared-memory remote-sync on|off [间隔分钟]  跨机同步（GitHub 仓库那份）
+/shared-memory remote-sync now    立刻同步一次
 /shared-memory clear 底线         清空某个模块
 /shared-memory clear              全清
 ```
@@ -333,6 +356,8 @@ DSH 插件 `lib/cross-sync.js` 会监听上述文件；**从 Cursor inbound 拉�
 - 归档条目**不参与召回**（`recall.js` 与 `weighted-recall.js` 两处都过滤），也不会再进图谱。
 - `store.js` 的 `normalizeStore` 显式保住这三个字段——否则下次读库会被「逐字段重建」抹掉，归档标记静默复活。
 - 注意：归档只作用于扁平库 `memory.json`；模块桶 `modules.json` 暂不动（同步进来的条目在模块桶里没有对应 item）。
+- 2026-11 补的一处：召回重建条目时按白名单逐字段复制，**以前漏了 `archived`**，于是「归档条目不参与召回」这句实际不成立（归档等于没归档）。白名单现在带上了 `archived / archivedAt / archiveReason`，单测 `tests/recall-archive.test.mjs` 守着。界面也补了「查看已归档 / 全部恢复 / 单条恢复」，恢复不再只能走命令行。
+- 条数上限从 500 提到 **2000**；超了先按「用得少 + 权重低 + 旧」挑最不值钱的转存到 `memory-archive.jsonl`，**底线和钉住的不参与淘汰**。
 
 ### 新增的接口
 
