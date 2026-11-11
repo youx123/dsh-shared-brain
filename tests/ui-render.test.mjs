@@ -79,6 +79,7 @@ function loadClient() {
       + " memoryGraphCard: typeof MemoryGraphCard === \"function\" ? MemoryGraphCard : null,"
       + " graphCanvas: typeof GraphCanvas === \"function\" ? GraphCanvas : null,"
       + " healthDetailCard: typeof HealthDetailCard === \"function\" ? HealthDetailCard : null,"
+      + " moduleCard: typeof ModuleCard === \"function\" ? ModuleCard : null,"
       + " brainPanel: typeof BrainPanel === \"function\" ? BrainPanel : null"
       + " }; " + marker,
   )
@@ -651,6 +652,30 @@ test("体检明细卡片没重复也没陈旧时不渲染", () => {
 test("体检明细卡片缺 health 参数时不崩", () => {
   const text = renderText(cards.healthDetailCard({ t }))
   noRenderError(text)
+})
+
+// 2026-11-12：知识库/自主学习这两个模块在 /status 里没有 top 字段（只有 count / books）。
+// 以前 ModuleCard 只要 count>0 就直接 module.top.map，缺 top 就抛 TypeError，
+// 一个模块把整块设置页带白 —— 线上真发生过。这里把两种形状都钉住。
+test("模块卡片缺 top 字段时不抛错（线上白屏的根因）", () => {
+  const text = renderText(cards.moduleCard({ t, id: "knowledge", module: { enabled: true, count: 287, books: [], bookTotal: 0 } }))
+  noRenderError(text)
+  ok(text.includes("287"), "条数还是该显示")
+})
+
+test("模块卡片有 top 时照常渲染样例", () => {
+  const text = renderText(cards.moduleCard({
+    t, id: "cognition",
+    module: { enabled: true, count: 2, weight: 0.5, top: [{ text: "第一句" }, { text: "第二句" }] },
+  }))
+  noRenderError(text)
+  ok(text.includes("第一句 / 第二句"), "样例没渲染出来，实际 " + JSON.stringify(text.slice(0, 120)))
+})
+
+test("模块卡片 top 是空数组时不渲染空行", () => {
+  const text = renderText(cards.moduleCard({ t, id: "learning", module: { enabled: false, count: 3, top: [] } }))
+  noRenderError(text)
+  ok(!text.includes("moduleTop"), "不该出现空的样例行")
 })
 
 console.log(`\n${passed} 通过 / ${failed} 失败`)
