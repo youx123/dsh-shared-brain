@@ -28,7 +28,7 @@
     "./package.json": "./package.json"
   },
   "files": [
-    "lib",
+    "lib/*.js",
     "assets",
     "cordis.patch.yml",
     "README.md",
