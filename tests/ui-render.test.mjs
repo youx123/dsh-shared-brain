@@ -75,6 +75,7 @@ function loadClient() {
       + " remoteSyncCard: typeof RemoteSyncCard === \"function\" ? RemoteSyncCard : null,"
       + " personaCard: typeof PersonaCard === \"function\" ? PersonaCard : null,"
       + " capabilityCard: typeof CapabilityCard === \"function\" ? CapabilityCard : null,"
+      + " knowledgeCard: typeof KnowledgeCard === \"function\" ? KnowledgeCard : null,"
       + " memoryGraphCard: typeof MemoryGraphCard === \"function\" ? MemoryGraphCard : null,"
       + " graphCanvas: typeof GraphCanvas === \"function\" ? GraphCanvas : null,"
       + " brainPanel: typeof BrainPanel === \"function\" ? BrainPanel : null"
@@ -552,6 +553,27 @@ test("没有候选时也给说明，不是一片空白", () => {
   const text = renderText(graphCard())
   ok(text.includes("归档候选"), "要有归档候选这一节")
   ok(text.includes("可恢复"), "要说明能恢复")
+})
+
+test("读过的书卡片带「学一个网页」的输入框和按钮", () => {
+  const card = cards2.knowledgeCard({
+    t: (key) => String(key),
+    modules: { knowledge: { count: 287, bookTotal: 2, books: [{ name: "唐宋诗词精选", count: 60 }, { name: "中国地理", count: 13 }] } },
+  })
+  const text = renderText(card)
+  noRenderError(text)
+  ok(text.includes("唐宋诗词精选"), "要列出书名，实际 " + text.slice(0, 160))
+  // placeholder 是属性不是文本，renderText 看不到，直接扫序列化后的树
+  ok(JSON.stringify(card).includes("knowledgeLearnPlaceholder"), "输入框要有提示语")
+  const buttons = buttonsOf(card).map((b) => b.children)
+  ok(buttons.includes("knowledgeLearnButton"), "要有学习按钮，实际 " + JSON.stringify(buttons))
+})
+
+test("读过的书卡片没有知识点时不报错", () => {
+  const card = cards2.knowledgeCard({ t: (key) => String(key), modules: { knowledge: { count: 0, bookTotal: 0, books: [] } } })
+  const text = renderText(card)
+  noRenderError(text)
+  ok(text.includes("knowledgeEmpty"), "空状态要有说明")
 })
 
 console.log(`\n${passed} 通过 / ${failed} 失败`)
