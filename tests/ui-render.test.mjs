@@ -78,6 +78,7 @@ function loadClient() {
       + " knowledgeCard: typeof KnowledgeCard === \"function\" ? KnowledgeCard : null,"
       + " memoryGraphCard: typeof MemoryGraphCard === \"function\" ? MemoryGraphCard : null,"
       + " graphCanvas: typeof GraphCanvas === \"function\" ? GraphCanvas : null,"
+      + " healthDetailCard: typeof HealthDetailCard === \"function\" ? HealthDetailCard : null,"
       + " brainPanel: typeof BrainPanel === \"function\" ? BrainPanel : null"
       + " }; " + marker,
   )
@@ -582,6 +583,55 @@ test("读过的书卡片没有知识点时不报错", () => {
   const text = renderText(card)
   noRenderError(text)
   ok(text.includes("knowledgeEmpty"), "空状态要有说明")
+})
+
+
+group("体检明细卡片（2026-11-11：把重复 / 陈旧的明细送进界面）")
+
+const healthDetail = {
+  total: 563,
+  pinned: 2,
+  expired: 0,
+  stale: 0,
+  duplicates: 3,
+  noSource: 0,
+  line: "共 563 条｜钉住 2｜过期 0｜陈旧 0｜重复 3 组｜缺出处 0",
+  duplicateGroups: [
+    { module: "cognition", text: "我是一只会做事的鱼，小深", count: 2, ids: ["mem_a1", "mod_a2"] },
+  ],
+  staleList: [
+    { id: "mem_old1", module: "knowledge", text: "一条很久没人碰的知识点", days: 120 },
+  ],
+}
+
+test("体检明细卡片渲染不抛错", () => {
+  const text = renderText(cards.healthDetailCard({ t, health: healthDetail }))
+  noRenderError(text)
+})
+
+test("体检明细卡片列出重复组与它的 id", () => {
+  const text = renderText(cards.healthDetailCard({ t, health: healthDetail }))
+  ok(text.includes("healthDetailTitle"), "缺标题")
+  ok(text.includes("healthDetailDuplicates"), "缺重复分组标题")
+  ok(text.includes("mem_a1"), "没渲染出重复条目的 id")
+  ok(text.includes("mod_a2"), "没渲染出第二条 id")
+})
+
+test("体检明细卡片列出陈旧条目与天数", () => {
+  const text = renderText(cards.healthDetailCard({ t, health: healthDetail }))
+  ok(text.includes("healthDetailStale"), "缺陈旧分组标题")
+  ok(text.includes("mem_old1"), "没渲染出陈旧条目的 id")
+  ok(text.includes("120"), "没渲染出天数")
+})
+
+test("体检明细卡片没重复也没陈旧时不渲染", () => {
+  const text = renderText(cards.healthDetailCard({ t, health: { total: 10, duplicateGroups: [], staleList: [] } }))
+  ok(text === "", "没有明细时应该什么都不渲染，实际 " + JSON.stringify(text.slice(0, 80)))
+})
+
+test("体检明细卡片缺 health 参数时不崩", () => {
+  const text = renderText(cards.healthDetailCard({ t }))
+  noRenderError(text)
 })
 
 console.log(`\n${passed} 通过 / ${failed} 失败`)
