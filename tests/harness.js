@@ -827,7 +827,9 @@ console.log('== 0.9：按会话隔离 + 自动互动真实化 ==')
     followup: (msg) => calls.push({ kind: 'followup', msg }),
   }
   const agentive = { enabled: true, scope: 'all', sessionIds: [], timeWindow: { enabled: false } }
-  assert(proactive.nudgeAgent(fakeAgent, { agentive, sessionId: 'sess-p' }) === true, 'nudgeAgent 成功发出')
+  // activeGraceMs: 0 —— 这一段测的是「能不能发出去」，不是「老大正在说话时该不该闭嘴」
+  // （后者由 proactive-active.test.mjs 单独覆盖）；前面几段刚写过对话，默认宽限期会挡住。
+  assert(proactive.nudgeAgent(fakeAgent, { agentive, sessionId: 'sess-p', activeGraceMs: 0 }) === true, 'nudgeAgent 成功发出')
   assert(calls.length === 1 && calls[0].kind === 'followup', '用的是 followup（能唤醒会话）')
   assert(calls[0].msg.content[0].text.includes('主动搭话'), '主动指令里说明了这是自动搭话')
   assert(calls[0].msg.content[0].text.includes('不是老大发的消息'), '主动指令说明这是大脑自己找上门的')
@@ -843,7 +845,7 @@ console.log('== 0.9：按会话隔离 + 自动互动真实化 ==')
     session: { header: { id: 'sess-q', cwd: '' } },
     inject: (msg) => injectCalls.push(msg),
   }
-  assert(proactive.nudgeAgent(injectOnly, { agentive, sessionId: 'sess-q' }) === true, '没有 followup 时退回 inject 也能发')
+  assert(proactive.nudgeAgent(injectOnly, { agentive, sessionId: 'sess-q', activeGraceMs: 0 }) === true, '没有 followup 时退回 inject 也能发')
   assert(injectCalls.length === 1, 'inject 被调用')
 
   // runProactiveNow：对所有活跃 agent 发
