@@ -262,12 +262,13 @@ DSH 插件 `lib/cross-sync.js` 会监听上述文件；**从 Cursor inbound 拉�
 /shared-memory agentive scope all|session <会话ID...>  设定自动互动生效范围
 /shared-memory agentive interval <分钟>  设定自动互动间隔（1 ~ 1440 分钟）
 /shared-memory agentive now      立刻对所有活跃会话主动搭话一次
+/shared-memory agentive max-per-round <个数>  一轮最多给几个会话发（默认 1，1~20）
 /shared-memory persona           列出人设（内置 + 自定义）
 /shared-memory persona use <id>   切换人设
 /shared-memory persona save <名字> <正文...>   新建人设（自动切过去）
 /shared-memory persona delete <id>  删除自定义人设（内置不可删）
 /shared-memory persona session <会话ID> [人设ID]  给某个会话单独指定人设（留空回全局）
-/shared-memory speech             查看语音 / 唱歌参数
+/shared-memory speech             查看语音 / 唱歌参数（`voice-params` 是别名）
 /shared-memory speech voiceName 晓晓   改音色（voiceId / voiceName / rate / pitch / volume）
 /shared-memory speech sing.style 轻哼    改唱法（sing.enabled / sing.style / sing.bpm / sing.key）
 /shared-memory emoji              查看表情包目录、自动加载状态与清单
@@ -279,7 +280,7 @@ DSH 插件 `lib/cross-sync.js` 会监听上述文件；**从 Cursor inbound 拉�
 /shared-memory scope <模块> <条目> global|workspace [路径]  改条目作用域
 /shared-memory timewindow         查看自动互动的时间窗
 /shared-memory timewindow on|off [开始 结束]  开/关时间窗（跨午夜也行）
-/shared-memory search <关键词>     搜索记忆
+/shared-memory search <关键词>     搜索记忆（`find` 是同一个命令的别名）
 /shared-memory knowledge          知识库按书列出条数与前几个主题词
 /shared-memory knowledge stats    总条数 / 带出处 / 带标签 / 被召回过
 /shared-memory knowledge review   捞出久没更新、也没被用过的知识
@@ -287,6 +288,7 @@ DSH 插件 `lib/cross-sync.js` 会监听上述文件；**从 Cursor inbound 拉�
 /shared-memory learn text <一段话>  直接从文字里提炼知识点
 /shared-memory check              记忆体检：重复 / 缺出处 / 过期 / WAL 大小 / 建议
 /shared-memory retag [dry|all]    给老条目补标签（默认只补知识类）
+/shared-memory junk               可清理的文件有哪些：按类给数量、大小、最早时间（只读，不删）
 /shared-memory mood               查看心情判定状态与今日注入额度
 /shared-memory mood on|off        开关心情驱动
 /shared-memory mood-config <键> <值>  改门槛与额度（sigMoodRaw / injectPerDay / judgePerDay）
