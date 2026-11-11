@@ -166,7 +166,14 @@ DSH 设置页里有一节「**共享大脑**」，点开就能配置：
   - 卡片上显示上次扫描时间、文字 / 图片分别多少个，以及最近一次扫描新增 / 删除了哪些表情
   - 这张卡上还有「**默认表情**」——目录里挑不到合适的时用它
 - **搜索记忆**：按关键词翻找旧记忆，结果带模块徽章与永久 / 临时徽章；还能按模块、永久/临时、「只看钉住的」筛选
-- **能力开关**：网络 / 自动互动 两个开关
+- **读过的书**：按书名列条数（前 8 本）与总条数；下面四个入口——
+  - 「学一个网页」：填网址，抓回来分段提炼（每段 ~1200 字，最多 3 段），长文会告诉你「读了前 N 块、共多少字」
+  - 「从这段文字里提炼」：不想联网就直接粘贴正文（不少于 40 字），走同一条提炼链路但不出网
+  - 「看看该复习什么」：捞出久没更新、也没被用过的知识，每条旁边能一键「只在当前会话用」或「放回全局」
+  - 「给老条目补标签」：只补知识类，原有标签不动、不改更新时间；还有一行「存进知识库」，手写一条知识（书名 + 正文）
+- **记忆体检**：卡片下方一行「共 N 条｜钉住 x｜过期 x｜陈旧 x｜重复 x 组｜缺出处 x」，有可清理文件时带「可清理 N 个（x.xMB）」
+- **已归档**：记忆图谱卡里有「查看已归档（N）」与「全部恢复」。单条恢复接口支持（`restoreItems` 传一个 id），界面暂时只给了全部恢复——归档只是打标记，文本一直在库里
+- **能力开关**：网络 / 自动互动 / 自主学习 三个开关（自主学习默认关：每轮多一次模型调用）
 - **自动互动 · 定时主动**（**真的有动作**）：开启后插件会**按间隔给还活着的会话发一条「主动检查一下」的指令**（走 `agent.followup()`，会唤醒会话，等于自己开新一轮），不再只是一句提示词：
   - 填「主动间隔」（分钟）→ 「保存间隔」；改完立即重启定时器，不用重启宿主
   - 「**立刻主动一次**」按钮：马上给当前所有活跃会话发一条，用来验证是不是真的在跑
@@ -198,7 +205,7 @@ GET  /api/dsh-shared-brain/pulse       主动互动的脉搏（给桌宠接茬�
 
 ```
 模块与开关：setWeight / setEnabled / setLearning / learningStatus / setMoodConfig / resetMood
-条目管理：  addItem / addKnowledge / reviewKnowledge / knowledgeIndex / removeItem / pinItem
+条目管理：  addItem / addKnowledge / reviewKnowledge / knowledgeIndex / removeItem / pinItem / retag
             setLifetime / setItemScope / searchMemory / memoryCheck
 归档：      archiveCandidates / archiveItems / restoreItems
 说话方式：  setVoice / setSpeech / selectPersona / savePersona / deletePersona
@@ -253,6 +260,7 @@ DSH 插件 `lib/cross-sync.js` 会监听上述文件；**从 Cursor inbound 拉�
 /shared-memory weight 认知 0.8     调整模块权重（0..1）
 /shared-memory voice 说话要带点傲娇  往声音模块加一条风格
 /shared-memory add 底线 不要删我的文件  手动加一条（底线会自动钉住）
+/shared-memory add emotion 老大讨厌啰嗦 --sentiment dislike --target 老大 --intimacy 0.9  加情感条目并指定语义字段（不给就自动推断）
 /shared-memory pin 底线 <条目>      钉住 / unpin 取消钉住
 /shared-memory permanent 认知 <条目> 改成永久记忆
 /shared-memory temporary 认知 <条目> [小时]  改成临时记忆（默认 24 小时）
@@ -277,7 +285,7 @@ DSH 插件 `lib/cross-sync.js` 会监听上述文件；**从 Cursor inbound 拉�
 /shared-memory emoji interval <分钟>  改自动扫描间隔（30 秒 ~ 24 小时）
 /shared-memory emoji reload        立刻重扫目录
 /shared-memory emoji add <名字> <表情>  往目录里加一个表情（放文件进目录也行）
-/shared-memory scope <模块> <条目> global|workspace [路径]  改条目作用域
+/shared-memory scope <模块> <条目> global|workspace|session [工作区路径]  改条目作用域（限会话时自动用当前会话）
 /shared-memory timewindow         查看自动互动的时间窗
 /shared-memory timewindow on|off [开始 结束]  开/关时间窗（跨午夜也行）
 /shared-memory search <关键词>     搜索记忆（`find` 是同一个命令的别名）
@@ -292,7 +300,7 @@ DSH 插件 `lib/cross-sync.js` 会监听上述文件；**从 Cursor inbound 拉�
 /shared-memory cursor-export <目录> [prune] [dry]  把底线与钉住的记忆导出成 Cursor 规则（只写自己带标记的文件）
 /shared-memory mood               查看心情判定状态与今日注入额度
 /shared-memory mood on|off        开关心情驱动
-/shared-memory mood-config <键> <值>  改门槛与额度（sigMoodRaw / injectPerDay / judgePerDay）
+/shared-memory mood-config <键> <值>  改心情参数：injectMode(off|label|event) / moodBase / moodFloor / decayHalfHours / injectConfidence / injectPerDay / sigMood / sigMoodRaw / sigDim / judgeProvider / judgeModel / aliases
 /shared-memory mood-reset         清掉心情状态重新开始
 /shared-memory remote-sync on|off [间隔分钟]  跨机同步（GitHub 仓库那份）
 /shared-memory remote-sync now    立刻同步一次
