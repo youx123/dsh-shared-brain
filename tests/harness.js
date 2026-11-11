@@ -250,7 +250,9 @@ const bridge = await import('../lib/bridge.js')
 const snap = bridge.snapshotOf()
 console.log('  模块:', Object.keys(snap.modules).join(','))
 console.log('  声音语气:', snap.voice.style.tone)
-assert(Object.keys(snap.modules).length === 7, '快照含 7 个模块')
+// 7 个记忆模块 + voice + agentive + learning（自主学习开关 2026-11-09 并进快照）
+assert(Object.keys(snap.modules).length === 9, '快照含 9 个模块（含自主学习开关）')
+assert(typeof snap.modules.learning?.enabled === 'boolean', '快照里能看到自主学习开关状态')
 assert(snap.voice && snap.voice.style && typeof snap.voice.style.tone === 'string', '快照含声音风格')
 assert(typeof snap.memory.total === 'number', '快照含记忆总数')
 const w = bridge.mutateModules({ action: 'setWeight', module: '情感', weight: 0.33 })
@@ -804,8 +806,9 @@ console.log('== 0.9：按会话隔离 + 自动互动真实化 ==')
   assert(proactive.clampProactiveInterval(999999999) === proactive.MAX_PROACTIVE_INTERVAL_MS, '间隔上限被夹住')
   assert(proactive.clampProactiveInterval(0) === proactive.DEFAULT_PROACTIVE_INTERVAL_MS, '非法间隔回落到默认')
 
-  // scope=session 但一个会话都没选 → 不限定
-  assert(proactive.inProactiveScope({}, { enabled: true, scope: 'session', sessionIds: [] }, 'sess-x') === true, '选了 session 但没挑会话 = 不限定')
+  // scope=session 但一个会话都没选 → 谁也不发（2026-11-10 起；以前是「不限定」，
+  // 结果老大没勾任何会话，所有会话都被主动搭话）
+  assert(proactive.inProactiveScope({}, { enabled: true, scope: 'session', sessionIds: [] }, 'sess-x') === false, '选了 session 但没挑会话 = 谁也不发')
   assert(proactive.inProactiveScope({}, { enabled: true, scope: 'session', sessionIds: ['sess-y'] }, 'sess-x') === false, '指定会话时不在名单内被排除')
   assert(proactive.inProactiveScope({}, { enabled: true, scope: 'session', sessionIds: ['sess-y'] }, 'sess-y') === true, '指定会话时在名单内被放行')
   assert(proactive.inProactiveScope({}, { enabled: true, scope: 'all', sessionIds: [] }, 'sess-x') === true, 'scope=all 全部放行')
@@ -911,7 +914,7 @@ console.log('== 0.9：按会话隔离 + 自动互动真实化 ==')
   assert(noCfg.sent === 0 && noCfg.enabled === false, '没传配置时如实报告「开关是关的」而不是假装发出')
   const withCfg = proactive.runProactiveNow(regressCtx, {
     force: true,
-    getAgentive: () => ({ enabled: true, scope: 'session', sessionIds: [], timeWindow: { enabled: false } }),
+    getAgentive: () => ({ enabled: true, scope: 'all', sessionIds: [], timeWindow: { enabled: false } }),
   })
   assert(withCfg.sent === 1, '传了 agentive 配置就能真的发出去（这是 0.9.0 的回归点）')
   assert(sentCalls.length === 1, 'followup 真的被调用了')
