@@ -256,14 +256,19 @@ test('syncableEntry 拒绝会话级条目', () => {
   assert.equal(RS.syncableEntry({ id: 'y', text: '全局', scope: 'global' }), true)
 })
 
-test('mergeEntries 剥掉 cwd / sessionId（本机路径不上云）', () => {
+test('pushableEntries 剥掉 cwd / sessionId（本机路径不上云）', () => {
+  // 2026-11-11：合并结果现在是「本地完整、推出去干净」两份。
+  // mergeEntries 保留本机归属（否则每同步一次目录归属就淡一层），
+  // 真正上云前由 pushableEntries 剥字段。远端来的条目本来就没这些字段。
   const merged = RS.mergeEntries(
     [],
     [{ id: 'z', text: '一条记忆', scope: 'global', cwd: 'C:/Users/someone/secret', sessionId: 'sess-1', updatedAt: Date.now() }],
     {},
   )
-  assert.equal(merged.entries[0].cwd, undefined, '路径被剥掉')
-  assert.equal(merged.entries[0].sessionId, undefined, '会话 id 被剥掉')
+  const pushed = RS.pushableEntries(merged.entries)
+  assert.equal(pushed[0].cwd, undefined, '路径被剥掉')
+  assert.equal(pushed[0].sessionId, undefined, '会话 id 被剥掉')
+  assert.equal(pushed[0].id, 'z', '其他字段原样保留')
 })
 
 test('stripSessionItems 不动 agentive.sessionIds', () => {
