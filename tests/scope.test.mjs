@@ -14,7 +14,7 @@ process.env.DSH_HOME = home
 
 const { writeModules, readModules, putModuleItem } = await import('../lib/modules.js')
 const { writeStore, readStore } = await import('../lib/store.js')
-const { applyItemScope } = await import('../lib/bridge.js')
+const { applyItemScope, setSessionCatalogProvider } = await import('../lib/bridge.js')
 
 let pass = 0
 let fail = 0
@@ -72,6 +72,33 @@ check('全局不残留路径与会话', item2?.scope === 'global' && !item2?.sco
 // 6. 不认识的模块 / 不存在的条目
 check('未知模块报错', applyItemScope({ module: 'nope', id: 'x', scope: 'global' }).ok === false)
 check('不存在的条目报错', applyItemScope({ module: 'cognition', id: 'mod_missing', scope: 'global' }).ok === false)
+
+// 7. 界面上只说「只在这个会话里用」：默认会话由宿主目录提供
+setSessionCatalogProvider(() => ({
+  workspaces: [],
+  flat: [{ id: 'session-cur', title: '当前', cwd: 'D:\\微信web开发者工具', live: true, current: true }],
+  total: 1,
+  live: 1,
+  current: 'session-cur',
+  updatedAt: Date.now(),
+  error: '',
+  scanning: false,
+}))
+res = applyItemScope({ module: 'cognition', id: 'mod_scope_1', scope: 'session' })
+check('不给会话时用当前会话', res.ok === true, res.error ?? res.note)
+item = readModules().cognition.items.find((it) => it.id === 'mod_scope_1')
+check('桶里记成当前会话', item?.scope === 'session' && item?.scopeSession === 'session-cur', JSON.stringify(item?.scopeSession))
+
+// 8. 同理，工作区默认用当前会话的目录
+res = applyItemScope({ module: 'cognition', id: 'mod_scope_1', scope: 'workspace' })
+check('不给路径时用当前会话目录', res.ok === true, res.error ?? res.note)
+item = readModules().cognition.items.find((it) => it.id === 'mod_scope_1')
+check('桶里记成当前目录', item?.scope === 'workspace' && item?.scopePath === 'D:\\微信web开发者工具', JSON.stringify(item?.scopePath))
+
+// 9. 宿主没接上会话服务时，仍然报错而不是当成 global
+setSessionCatalogProvider(null)
+res = applyItemScope({ module: 'cognition', id: 'mod_scope_1', scope: 'session' })
+check('没有会话服务时报错', res.ok === false && /会话/.test(res.error ?? ''), res.error)
 
 try { rmSync(home, { recursive: true, force: true }) } catch { /* Windows 句柄未关时删不掉 */ }
 
