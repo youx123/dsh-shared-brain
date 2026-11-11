@@ -283,7 +283,25 @@ test("MoodCard 显示维度 / 理由 / 轨迹", () => {
   ok(text.includes("moodTimeline"), "缺轨迹标签")
   ok(text.includes("33(-4)"), "轨迹没渲染")
 })
-test("MoodCard 维度都很低时不硬凑（阈值 20）", () => {
+test("MoodCard 维度都很低且分不开时不硬凑（相对量纲）", () => {
+  // 2026-11-12：原来按绝对阈值 20 判「太低」，但七维真值常年 0~5，
+  // 于是这一行常年空白。现在改成相对量纲：跟最高那维比。
+  // 这条用例守的是「真的没话说别硬凑」：全维一样低（都在 1 分），
+  // 谁也没领先，就不该挑一个出来写。
+  const text = renderText(cards.moodCard({
+    t,
+    busy: false,
+    emotion: {
+      config: {},
+      total: 1,
+      sessions: [{ sessionId: "s", mood: 70, band: "happy", dims: { happy: 1, calm: 1 }, reason: "", confidence: 0, timeline: [] }],
+    },
+    onRun: () => {},
+  }))
+  noRenderError(text)
+  ok(!text.includes("moodDims"), "维度都在下限、分不开时不该显示")
+})
+test("MoodCard 维度值小但明显领先时照样显示（相对量纲）", () => {
   const text = renderText(cards.moodCard({
     t,
     busy: false,
@@ -295,7 +313,8 @@ test("MoodCard 维度都很低时不硬凑（阈值 20）", () => {
     onRun: () => {},
   }))
   noRenderError(text)
-  ok(!text.includes("moodDims"), "维度都低于阈值时不该显示")
+  ok(text.includes("moodDims"), "7 / 6 这种真实量级应该显示出来")
+  ok(text.includes("开心 7"), "没渲染出开心 7")
 })
 
 group("跨机同步卡片（0.9.9 新增）")
