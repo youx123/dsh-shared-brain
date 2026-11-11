@@ -570,6 +570,10 @@ test("读过的书卡片带「学一个网页」的输入框和按钮", () => {
   ok(buttons.includes("knowledgeReviewButton"), "要有复习按钮，实际 " + JSON.stringify(buttons))
   ok(buttons.includes("knowledgeAddButton"), "要有存进知识库的按钮，实际 " + JSON.stringify(buttons))
   ok(JSON.stringify(card).includes("knowledgeAddTitlePlaceholder"), "要有书名输入框")
+  // 2026-11-11：贴一段正文也能提炼（不联网），以前只有 URL 那一半。
+  ok(JSON.stringify(card).includes("knowledgeLearnTextPlaceholder"), "要有贴正文的输入框")
+  ok(buttons.includes("knowledgeLearnTextButton"), "要有从文字提炼的按钮，实际 " + JSON.stringify(buttons))
+  ok(buttons.includes("knowledgeRetagButton"), "要有补标签按钮，实际 " + JSON.stringify(buttons))
   ok(!text.includes("knowledge-review-list"), "还没点复习时不该有队列")
 })
 
