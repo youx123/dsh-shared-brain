@@ -577,7 +577,11 @@ try {
     assert(syncJson.includes("\"token\"") === false, "sync.json 连 token 字段都不该有")
     const tokenFile = join(home, "storages", "dsh-shared-brain", "sync-token.json")
     assert(existsSync(tokenFile), "token 文件应该存在")
-    assert(rf(tokenFile, "utf8").includes(TOKEN), "token 在独立文件里")
+    // 2026-11-12：token 文件改成密文（v2，机器绑定 AES-GCM）。
+    // 断言随之改成「文件里不该出现明文」，功能可用性靠下面的 hasToken 兜。
+    const tokenRaw = rf(tokenFile, "utf8")
+    assert(tokenRaw.includes(TOKEN) === false, `token 文件里不该出现明文 token：${tokenRaw.slice(0, 200)}`)
+    assert(tokenRaw.includes("\"v\": 2") || tokenRaw.includes("\"v\":2"), "token 文件应该是 v2 密文格式")
     // 但功能没坏：还是能读到 token
     assertEqual(sync.remoteSyncStatus().hasToken, true, "状态里认得出有 token")
   })
