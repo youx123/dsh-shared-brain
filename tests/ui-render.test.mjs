@@ -654,6 +654,73 @@ test("体检明细卡片缺 health 参数时不崩", () => {
   noRenderError(text)
 })
 
+// 2026-11-12：以前 notes / junk / chats / events / 注入预算 后端都算好了，
+// 界面上一个入口都没有 —— 这次全塞进同一张卡里。
+const fullSnapshot = {
+  health: {
+    total: 569,
+    duplicateGroups: [],
+    staleList: [],
+    notes: ["记忆快到 2000 条上限了", "底线条目还没镜像进扁平库"],
+    junk: {
+      total: 31,
+      totalBytes: 2760000,
+      groups: [
+        { kind: "backup", label: "旧版本备份", count: 28, bytes: 2400000 },
+        { kind: "probe", label: "调试残留", count: 1, bytes: 744000 },
+      ],
+    },
+  },
+  chats: [
+    { role: "user", kind: "cognition", text: "把体检明细做进界面", at: 1794450000000 },
+  ],
+  events: [
+    { kind: "turn", text: "cognition：续接提醒", at: 1794450000000 },
+  ],
+  injectTrim: { at: 1794450000000, droppedLines: 3, originalChars: 4200, keptChars: 3100 },
+}
+
+test("体检明细卡片渲染提醒、垃圾、对话、事件与注入预算", () => {
+  const text = renderText(cards.healthDetailCard({ t, snapshot: fullSnapshot }))
+  noRenderError(text)
+  ok(text.includes("healthDetailNotes"), "缺提醒分组")
+  ok(text.includes("记忆快到 2000 条上限了"), "缺少提醒正文")
+  ok(text.includes("healthDetailJunk"), "缺可清理文件分组")
+  ok(text.includes("旧版本备份"), "缺垃圾分组标签")
+  ok(text.includes("2.3 MB"), "缺垃圾分组大小换算，实际 " + JSON.stringify(text.slice(0, 200)))
+  ok(text.includes("healthDetailChats"), "缺最近对话分组")
+  ok(text.includes("把体检明细做进界面"), "缺对话正文")
+  ok(text.includes("healthDetailEvents"), "缺事件分组")
+  ok(text.includes("cognition：续接提醒"), "缺事件正文")
+  ok(text.includes("healthDetailBudget"), "缺注入预算那行")
+})
+
+test("体检明细卡片的占位符真的会被替换（不是只把键名印出来）", () => {
+  // 假 t 只回键名，模板里的 {a} {b} {n} {size} 就顶不上 —— 这里给一份带占位符的 t 单独验替换。
+  const tRich = (key) => {
+    const map = {
+      healthDetailBudget: "上一轮注入：原文 {a} 字，留下 {b} 字（砍掉 {n} 行）。",
+      healthDetailJunk: "可清理的文件（{n} 个，共 {size}）：",
+    }
+    return map[key] ?? key
+  }
+  const text = renderText(cards.healthDetailCard({ t: tRich, snapshot: fullSnapshot }))
+  ok(text.includes("4200"), "没替换原文长度")
+  ok(text.includes("3100"), "没替换保留长度")
+  ok(text.includes("3 行"), "没替换砍掉的行数")
+  ok(text.includes("31 个"), "没替换可清理文件总数")
+  ok(text.includes("2.6 MB"), "没替换可清理文件总大小，实际 " + JSON.stringify(text.slice(0, 200)))
+})
+
+test("只有注入预算时也要渲染（不能因为没重复就整块不见）", () => {
+  const text = renderText(cards.healthDetailCard({
+    t,
+    snapshot: { injectTrim: { at: 1, droppedLines: 1, originalChars: 900, keptChars: 800 } },
+  }))
+  ok(text.includes("healthDetailTitle"), "只有预算时也应该出卡片")
+  ok(text.includes("healthDetailBudget"), "缺注入预算那行")
+})
+
 // 2026-11-12：知识库/自主学习这两个模块在 /status 里没有 top 字段（只有 count / books）。
 // 以前 ModuleCard 只要 count>0 就直接 module.top.map，缺 top 就抛 TypeError，
 // 一个模块把整块设置页带白 —— 线上真发生过。这里把两种形状都钉住。
