@@ -1,5 +1,5 @@
 /** 模块桶合并去重：按 id 或正文前 40 字挡重复，且不再平方复杂度。 */
-import { mergeBucketItems, textPrefix, PREFIX_LEN } from 'file:///C:/Users/13176/Documents/dsh-shared-brain-patches/lib/bucket-merge.js'
+import { mergeBucketItems, textPrefix, PREFIX_LEN } from '../lib/bucket-merge.js'
 
 let pass = 0
 let fail = 0

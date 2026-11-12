@@ -8,7 +8,7 @@ import { join } from 'node:path'
 
 const home = mkdtempSync(join(tmpdir(), 'sb-import-tags-'))
 process.env.DSH_HOME = home
-const LIB = 'file:///C:/Users/13176/Documents/dsh-shared-brain-patches/lib/'
+const LIB = new URL('../lib/', import.meta.url).href
 const store = await import(LIB + 'store.js')
 
 let pass = 0

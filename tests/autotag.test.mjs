@@ -1,4 +1,4 @@
-import { extractTags, mergeTags, tagsForEntry } from 'file:///C:/Users/13176/Documents/dsh-shared-brain-patches/lib/autotag.js'
+import { extractTags, mergeTags, tagsForEntry } from '../lib/autotag.js'
 
 let pass = 0
 let fail = 0

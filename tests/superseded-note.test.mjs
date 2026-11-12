@@ -1,4 +1,4 @@
-import { renderModuleRecall } from 'file:///C:/Users/13176/Documents/dsh-shared-brain-patches/lib/weighted-recall.js'
+import { renderModuleRecall } from '../lib/weighted-recall.js'
 
 let pass = 0
 let fail = 0

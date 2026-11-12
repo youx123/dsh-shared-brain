@@ -1,5 +1,5 @@
 /** 长文分块后，出处带「第几段」；一段就整篇，不标。 */
-import { sourceRefForPart } from 'file:///C:/Users/13176/Documents/dsh-shared-brain-patches/lib/reading-chunks.js'
+import { sourceRefForPart } from '../lib/reading-chunks.js'
 
 let pass = 0
 let fail = 0

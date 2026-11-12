@@ -8,7 +8,7 @@ import { join } from 'node:path'
 
 const root = mkdtempSync(join(tmpdir(), 'sb-race-'))
 process.env.DSH_SHARED_BRAIN_CURSOR_BRAIN = root
-const LIB = 'file:///C:/Users/13176/Documents/dsh-shared-brain-patches/lib/'
+const LIB = new URL('../lib/', import.meta.url).href
 const cross = await import(LIB + 'cross-sync.js')
 
 const coordFile = join(root, 'sync-coordinator.json')

@@ -1,4 +1,4 @@
-import { memoryCheck, renderCheckLine } from 'file:///C:/Users/13176/Documents/dsh-shared-brain-patches/lib/health.js'
+import { memoryCheck, renderCheckLine } from '../lib/health.js'
 
 let pass = 0
 let fail = 0

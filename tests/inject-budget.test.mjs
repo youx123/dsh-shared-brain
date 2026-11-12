@@ -1,5 +1,5 @@
 /** 记忆注入的预算守门：超了就按行截，末尾说明少了多少行。 */
-import { fitToBudget, describeBudget, INJECT_BUDGET_CHARS } from 'file:///C:/Users/13176/Documents/dsh-shared-brain-patches/lib/inject-budget.js'
+import { fitToBudget, describeBudget, INJECT_BUDGET_CHARS } from '../lib/inject-budget.js'
 
 let pass = 0
 let fail = 0

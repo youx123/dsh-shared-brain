@@ -1,5 +1,5 @@
 /** 体检不只报「N 条陈旧」，还要给出是哪几条。 */
-import { memoryCheck } from 'file:///C:/Users/13176/Documents/dsh-shared-brain-patches/lib/health.js'
+import { memoryCheck } from '../lib/health.js'
 
 let pass = 0
 let fail = 0

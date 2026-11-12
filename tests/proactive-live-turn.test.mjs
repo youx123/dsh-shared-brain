@@ -6,7 +6,7 @@ const home = mkdtempSync(join(tmpdir(), 'sb-live-turn-'))
 process.env.DSH_HOME = home
 
 const { noteUserTurn, recentlyActive, ACTIVE_GRACE_MS } = await import(
-  'file:///C:/Users/13176/Documents/dsh-shared-brain-patches/lib/proactive.js'
+  '../lib/proactive.js'
 )
 
 let pass = 0
