@@ -889,3 +889,98 @@ apply: {changed:true, reason:changed, name:大肥鱼, ownerTitle:主人, selfCla
 - 养鱼插件自己读到新的 config/persona.md 后的表现（需看它的页面 / 实际唤醒一次）
 - 15 秒看门狗在真宿主里的长期行为
 
+
+## 2026-11-13 补充 22：0.10.32 ——「勾了没反应」「取消不了」「心情永远说不准」三件一起修
+
+### 起因
+User said (m00038): 「共享大脑的自动互动勾选会话没有反应，桌宠的情绪显示有问题」
+User said (m00422): 「动吧，心情显示又没有了，勾选会话不能取消 ，都处理一下」
+
+### 根因（三条，都是实测出来的）
+1. 自动互动勾的是**会话 id**，而会话 id 每次宿主重启都会换。盘里唯一勾着的 `session-6f1b394b-…` 是 11/06 的死会话（`live:false`），`runProactive` 实测回「2 个活跃会话都跳过了：不在你选中的会话里」，`runtime.skipped=2 / lastSkipReason=scope`，`fired` 一直是 0。写盘链路、`pickAgents`、`nudgeAgent` 全正常，坏的只是「勾的对象已经不存在」。
+2. 按目录兜底（0.10.31）把死会话的 cwd 也算进去了，于是取消当前会话照样命中 `D:\微信web开发者工具` → 表现为「取消不了」。
+3. `agent/disposed` 里的 `clearMoodState(sessionId)`：每轮 `agent/turn-stopping` 异步判完心情写盘（judgements+1、updatedAt=现在），本轮结束 agent 一销毁就整条删掉，下一轮组装提示词又用空壳建回来（updatedAt=0）。于是 `judgeLog.count` 天天涨、`states` 里永远没有当天数据，桌宠 `pickMood` 取到 4 天前那条 → `effectiveMood` 判 cold → 界面永远「🐟 说不准」、七维全为零。证据：judgeLog `{day:"2026-11-13",count:11,failed:0}`，而 states 里最新 updatedAt=1794193653262（≈99 小时前），本会话 4a1837a9 是 updatedAt=0/judgements=0 的空壳。
+
+### 改动（lib/）
+- `emotion` 侧：撤销 P0-4，`index.js` 的 `agent/disposed` 不再调用 `clearMoodState`（`clearMoodState` 仍导出、供手动重置用）。`maxStates:30` 的裁剪足够兜底，会话 id 是 uuid 不会复用。
+- `proactive.js`：`inProactiveScope` 先按 id 匹配，对不上再看目录（0.10.31 的 `scopeCwds`）；本轮再加排除表 `agentive.excludedCwds`，**优先级最高**——命中目录直接不发，取消才真能取消。
+- `bridge.js`：新增导出纯函数 `nextExcludedCwds(previousIds, nextIds, flat, excludedCwds)`，`setAgentiveScope` 用它算「这次取消掉的目录」；`previousIds` 必须在覆盖前读，否则差集恒空（第一版就踩了这个）。空勾选文案从「等于对所有会话生效」改成「已取消全部勾选，现在谁都不会收到主动搭话」——原文案和行为正好相反。
+- `modules.js`：agentive 默认值加 `excludedCwds: []`，normalize 认这个键（trim、去空、上限 50）。
+- `remote-sync.js`：`restoreLocalAgentive` 保留本机 `excludedCwds`，否则每次同步都被清掉。
+- `client.js`：`scopeUnknown` 文案 →「（已找不到这个会话）」，孤儿勾选行不再只显示一串 id。
+
+### 测试
+- `node --check`：installed 包与 repo 两棵树的 bridge/modules/proactive/remote-sync 全过
+- 临时单测（不写盘）11 例 × 两棵树全过：取消活会话→目录入排除表、全部取消、重勾→摘掉、同目录还有活会话→不排除、别的目录不受影响、前缀混写、无变化、排除表优先、无排除表时目录兜底照旧、排除别的目录、一个都没勾谁都不发
+
+### 没验证的
+- 宿主重启后的真实发出的效果（引擎要重启才加载新代码）
+- 心情 state 在本会话跑完一整轮后是否出现今天的 updatedAt（旧进程内存里还是老代码，14:05 启动、改动 14:13 才落盘，所以那 11 次判定不算数）
+- 设置页孤儿行的实际渲染（文案改了，得重启看）
+
+### 2026-11-13 追加：把「静默失败」全逼进 judgeLog
+重启后实测：进程 14:17:41 启动（已带上「撤销 clearMoodState」），本轮两轮 turn-stopping 确实跑了（knowledge 条目 14:20:02 有新增），但 judgeLog 仍停在 `count:11 / failed:0`，本会话 state 仍 `updatedAt:0`。
+也就是说判定没跑到底，而且**没留下任何痕迹**——`judgeMoodForTurn` 里还有两处静默出口。补掉：
+- `if (!sessionId) return` → `noteMoodJudge(..., 'failed:拿不到会话 id，这一轮没判定')`
+- 外层 catch 只写内存 `state.lastError` → 同时 `noteMoodJudge(..., 'failed:判定过程抛错：…')`
+下次重启后只要再跑一轮，judgeLog 里就能看到到底断在哪一环（拿不到 id / 抛错 / 模型没给结果）。
+
+## 2026-11-13 补充 23：0.10.33 目录级冷却（同目录多会话不再轮着敲）
+
+**问题**：自动互动的 `maxPerRound` 只保证「一次定时触发最多发 1 条」，但同一个工作目录下开着三个会话时，15 分钟一轮、轮着来，45 分钟内三个会话各收到一条主动搭话，内容还容易撞车（同一份上下文推出来的话术大同小异）。老大原话是「同目录多会话会各收到一遍，要不只挑最活跃那个」。
+
+**改法**：给自动互动加一层目录级冷却，默认开启。
+
+- `lib/proactive.js`
+  - 新增导出纯函数 `sameDirBlocked(lastFiredByDir, dirKey, now, windowMs)`：目录在窗口内已经发过就返回 true；`!dirKey`、`windowMs <= 0`、非 Map、没有记录、记录值非法都返回 false。
+  - `startProactiveLoop` 里新增 `const lastFiredByDir = new Map()`（只活在本进程内，重启清零，符合「冷却只挡短时间内的连发」的本意）。
+  - `tick()` 循环里，在心情系数算完之后、`maxPerRound` 预算判断之前，用 `normalizeScopeCwd(agent?.session?.header?.cwd)` 取目录，命中冷却就 `stats.sameDirSkipped += 1` 并 `skip(SKIP_REASON.sameDir)` 跳过这个会话；`sent` 成功分支里 `lastFiredByDir.set(dirKey, Date.now())`。
+  - `SKIP_REASON` 加 `sameDir`；`stats` 加 `sameDirSkipped`；`proactiveStatus()` 把它暴露出去。
+- `lib/modules.js`
+  - agentive 默认值加 `sameDirCooldownMs: 0`：`0` 或没配 = 跟随当前间隔（默认 15 分钟，含抖动后的实际值）；`> 0` 自定义毫秒；`< 0` 关闭去重。
+  - `normalizeModules` 里接受这个键，钳到 `[-1, 24h]`、取整。
+- 语义边界：只作用于定时 tick。`runProactiveNow`（手动「现在主动一次」）仍然不受目录冷却限制，方便测试和手动催。
+
+**测试**：`C:\Users\13176\AppData\Local\Temp\dsh-samedir-test.mjs` 覆盖 16 个用例（窗口内命中、窗口外放行、恰好边界放行、windowMs 为 0/负数不拦、空目录不拦、非 Map 不拦、没记录放行、别的目录互不影响、记录值 0、normalize 负数钳到 -1、正数保留、0 保留、上限 24h、小数取整、默认值 0），installed 与源码库两棵树各 **16/16** 通过；`node --check` 四个文件全过。
+
+**未验证**：真正「同目录两个活会话只发一个」需要两个同目录的活跃会话才会出现，当前现场只有一个活会话，单测只覆盖了判定函数与配置归一化，没有跑过真实 tick 的多会话拦截。
+
+## 2026-11-13 补充 24：0.10.34 会话级排除表（excludedIds）
+
+**症状**：老大反馈「还是无法取消勾选的会话」。复现脚本证实：两个同目录会话都勾着，取消其中一个后，盘上 sessionIds 只剩另一个、excludedCwds 为空，但 `inProactiveScope` 对被取消的那条仍返回 true。
+
+**根因**：目录兜底（补充 22 的 scopeCwds）把粒度钉死在「目录」上。`nextExcludedCwds` 里 `remainingLiveCwds` 只在「该目录下没有任何别的勾选活会话」时才把目录记进排除表；同目录还勾着别的会话时目录排除表不生效，而被取消的会话 id 虽然从 sessionIds 删了，cwd 仍命中目录兜底 → 取消无效。
+
+**改法**：加会话级排除表 `agentive.excludedIds`，优先级最高。
+
+- `lib/modules.js`：默认 `excludedIds: []`；normalize 接受 `incoming.excludedIds`（trim、上限 50）。
+- `lib/proactive.js`：`inProactiveScope` 在目录排除表之后、正匹配之前判 excludedIds，命中（`sameSessionId` 归一比较）直接 false。
+- `lib/bridge.js`：新增导出纯函数 `nextExcludedIds(previousIds, nextIds, excludedIds)`；`setAgentiveScope` 里先留 previousIds，再算 excludedCwds + excludedIds；`scope !== 'session'` 时两者清空；`setEnabled` 自动绑当前会话时把该 id 从排除表摘掉；note 追加「（另有 N 个会话已排除）」。
+- `lib/commands.js`：`/shared-memory agentive scope` 同样维护 excludedIds（导入 nextExcludedIds）。
+- `lib/remote-sync.js`：`restoreLocalAgentive` 保住本机 excludedIds，避免同步一次被清掉。
+
+**单测**：`C:\Users\13176\AppData\Local\Temp\dsh-excludedids-test.mjs`，两棵树各 13/13 通过（取消入表、前缀归一、全部取消、重勾摘除、无变化保留、并表、上限 50、排除压住目录兜底、不影响别的会话、不影响 id 命中、无表时兜底照旧、前缀混写、空数组不误伤）。
+
+**未验证**：宿主重启后 HTTP 走向（本地运行进程仍是旧代码）。
+
+**测试残留已清理**：maxPerRound 回 1、sameDirCooldownMs 回 0、勾选恢复为只勾 4a1837a9。
+
+## 2026-11-13 补充 25：0.10.34 的目录冷却窗口要盖住抖动
+
+补充 23 里「窗口 = 当前间隔」默认值有个实测漏洞：`randomizeInterval` 的抖动是 0.5x~1.5x，
+所以实际间隔常大于 `intervalMs`（线上 15 分钟基准实测 1001s）。窗口如果正好等于基准，
+上一轮刚说过话的目录，到下一轮 tick 时窗口已经过期，**跨 tick 完全拦不住**，
+只有手动触发和 maxPerRound>1 的同一 tick 内才有用。
+
+改法（installed 与 repo 两棵树一致，`lib/proactive.js` tick 里）：
+
+```js
+const sameDirWindow = !Number.isFinite(sameDirConfigured) || sameDirConfigured === 0
+  ? Math.max(0, Math.round((Number(currentIntervalMs) || 0) * (1 + PROACTIVE_INTERVAL_JITTER)))
+```
+
+`sameDirCooldownMs < 0` 仍然是关闭，`> 0` 仍然用自定义毫秒值。默认语义变成
+「至少一个完整抖动周期」，保证同目录下一轮 tick 不会又有人说话。
+
+验证：`node --check` 两棵树均通过；`sameDirBlocked` 是纯函数、入参是算好的毫秒，单测不受影响。
+**跨 tick 的真实效果要等宿主重启后跑一轮 tick 才能确认**（当前进程加载的是改前的代码）。
