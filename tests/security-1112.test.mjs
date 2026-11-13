@@ -130,8 +130,8 @@ check('sourceRef / topicKey / target / supersedes 也脱敏', () => {
       module: 'cognition',
       text: '普通正文',
       tags: [],
-      sourceRef: 'ghp_abcdefghijklmnopqrstuvwxyz0123456789',
-      topicKey: 'sk-proj-abcdefghijklmnopqrstuvwxyz1234567890',
+      sourceRef: 'ghp_abcdefghijklmnopqrstuvwxyz0000',
+      topicKey: 'sk-proj-abcdefghijklmnopqrstuvwxyz0000',
       target: 'xoxb-000000000000-000000000000-000000000000',
       supersedes: 'AKIAIOSFODNN7EXAMPLE',
       // 归属信息不能洗 —— 洗了 workspace 作用域就匹配不上
