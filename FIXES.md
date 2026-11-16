@@ -984,3 +984,136 @@ const sameDirWindow = !Number.isFinite(sameDirConfigured) || sameDirConfigured =
 
 验证：`node --check` 两棵树均通过；`sameDirBlocked` 是纯函数、入参是算好的毫秒，单测不受影响。
 **跨 tick 的真实效果要等宿主重启后跑一轮 tick 才能确认**（当前进程加载的是改前的代码）。
+
+## 2026-11-16 补充 26：0.10.35 配置层自动调参（第一块「会自动改自己」的能力）
+
+**背景**：老大问「自动学习是否做到自主进化」。查下来自主学习是有的（每轮 turn-stopping 提炼知识，记进 knowledge.items，每日额度 8 条），但**没有任何东西会自己改配置**——参数全靠手调。老大批了先做配置层。
+
+**新文件 `lib/auto-tune.js`**：每天最多调一次，只调三个「有明确反馈信号」的旋钮。
+
+| 旋钮 | 信号 | 规则 |
+| --- | --- | --- |
+| `agentive.intervalMs` | 本次启动以来 fired/skipped | 样本 ≥6 才动；跳过 ≥ 2×发出 → ×1.25；发出 ≥3 且跳过 ≤ 0.4×发出 → ×0.85；钳 5~60 分钟、对齐整分钟 |
+| `emotion.config.judgePerDay` | 前一天的 judgeLog | 打满 → ×1.5；limit>12 且用量 <25% → ×0.8；钳 6~60 |
+| `learning.perDay` | 前一天的 learnState | 用满 → +2；一条没学且 >6 → -1；钳 2~20 |
+
+**为什么不调别的**：心情基线、模块权重、语气这些没有可靠信号，硬调就是拍脑袋，那不叫进化，叫瞎折腾。
+
+**为什么只看「前一天」的账**：当天只跑了几个小时就下结论，会把「今天还没开始用」误判成「额度用不完」，然后一天天往下砍——这是最容易把系统调死的一种写法。
+
+**接线**：`lib/index.js` 在 `setModulesChangedHandler` 之后 `startAutoTuneLoop({ getRuntime: () => proactiveStatus(), onIntervalChanged: () => restartProactive() })`；`ctx.effect` 里清理；`/status` 增加 `autoTune` 段（哪天调了什么、为什么、还是「没有需要调的地方」）。每次记账写 kv 键 `autoTune`。
+
+**踩到的坑**：`startAutoTuneLoop` 一开始直接把启动时的 `options` 传给 `applyTuning`，于是每半小时检查用的都是启动那一刻的 `fired/skipped` 快照——等于永远按第一天的数据调。改成每次检查现调 `getRuntime()`。
+
+**验证**：`node --check` 两棵树全过；单测 `tests` 侧临时脚本 14/14（今天调过不动 / 样本<6 不动 / 跳过太多 900000→1140000 / 命中高 900000→780000 / 下限钳住 / 打满 20→30 / 当天账不评判 / 用 <25% 时 20→16 / 14→11 后停手 / 学满 8→10 / 零学习 8→7 / 7→6 / 空输入不抛 / 三项同时调）。真实链路干跑一次：`applyTuning({runtime:{fired:0,skipped:0}})` → `changes=[]`，kv `autoTune` 写入 `{"day":"2026-11-16","applied":[],"skipped":"没有需要调的地方"}`，没动任何配置。
+
+**未验证**：真正的跨天调参要等第二天（或手动改 kv 里的 `day` 才能立刻验）；`onIntervalChanged` 触发重启定时器的那条路径只在代码层核对过。
+
+### 2026-11-16 追加：判定额度「失败率高就先不加」
+
+老大原话：「失败率过高就先不加额度」。原来打满 20 条就 ×1.5，可现在线上今天 `count:7 / failed:3`——三成回合根本没切出可判定的对话。这种时候额度不是不够用，是判不动，加额度只会让失败次数一起涨。
+
+改法（`lib/auto-tune.js`）：
+- 新增 `JUDGE_FAIL_RATE_LIMIT = 0.3`。
+- 失败率 = `failed / (count + skipped + failed)`；打满额度且失败率 > 30% → **不加**，改向 `notes` 里写一句人话：「判定额度停在 20 条：2026-11-16 失败 12/32 次（38%），额度不是不够用，是判不出来，先不加」。
+- `planTuning` 新增返回字段 `notes`（不改任何配置的说明性记录），`applyTuning` 把它写进 kv `autoTune.notes`，`/status` 的 `autoTune` 段能看到。
+- 失败率正常时照旧 ×1.5，`why` 里补上失败次数，方便回溯。
+
+单测从 14 例扩到 **18 例**（新增：失败率高不加额度 / 失败率高写进 notes / 失败率低照常加 / 失败率低不写 notes），两棵树都 18/18。`node --check` 通过。
+
+**未验证**：真实跨天那一刻的行为（要等明天，或手动把 kv `autoTune.day` 改成昨天触发——今天试过，因为 `judgeLog.day` 还是今天，保护逻辑直接跳过，什么都没动）。
+
+---
+
+## 2026-11-16 补充 27：0.10.35 复盘（自评 → 教训）
+
+### 为什么
+老大说共享大脑得像元神，能自己修炼。原来只有「学习」（记知识，是加法），
+没有「复盘」——答错了、答偏了，除了当场被骂，什么都不留下。
+
+### 是什么
+每轮 turn-stopping 后异步跑一次自评：
+- 模型给这一轮回答打分（0~100）+ 最多 3 条 issues + 一条 lesson
+- 分数低于 `lessonScore`（默认 62）才记教训，答得好不记
+- 教训写进 `knowledge.items`（`sourceRef: "复盘"`、`tags: ["self-review", …]`）
+
+### 关键设计：不另开注入通道
+教训走现有知识召回链路，下次同类场景召回时自动进提示词。
+另开一条通道就要在提示词里抢位置，还会和知识条目互相挤。
+
+### 三道闸门
+1. 分数门槛：只记错题
+2. 教训必须是「什么情况下先做什么」的判据，过程话（「我这就去查」）一律丢
+3. 与已有条目去重（归一化 + 相似度 0.6）+ 每日上限 6 轮
+
+### 新增文件
+`lib/reflect.js`：`DEFAULT_REFLECT`、`readReflectConfig/writeReflectConfig/reflectConfig`、
+`quotaLeft/bumpState/todayOf`、`clampScore`、`reflectStatus`、
+`buildReflectSystem/buildReflectUser`、`parseReflect`、`keepLesson`、`extractReflection`。
+配置存独立 kv 键 `reflect`（理由同 learning：走 modules 桶丢过字段）。
+额度计数存 kv `reflectState`。
+
+### 接线（`lib/index.js`）
+- import 段加 reflect 那几个（`reflectConfig as reflectSettings`，避开 learning 的同名导入）
+- 新增 `reflectForTurn(ctx, agent, logger)`，紧跟 `learnForTurn`
+- `agent/turn-stopping` 里加 `void reflectForTurn(ctx, agent, logger)`
+- `/status` 加 `reflect: reflectStatus()`
+
+### 验证
+- `node --check lib/reflect.js`、`lib/index.js` 均通过
+- 单测 `dsh-reflect-test.mjs` **20/20**：高分不记 / 低分记 / 空教训 / 太短 / 完全不重复 /
+  相似度拦截 / 过程话拦截 / 抠 JSON / 坏 JSON / 分数钳制 / 额度 / 跨天重置 / 默认值
+- 假模型干跑：`extractReflection` 走 `ctx.llm.stream`（temperature 0.1、maxTokens 400、
+  带 sessionId、source.kind=plugin），解析出 score 48 → 教训条目带两个标签；
+  无 `ctx.llm` 时返回 null 不抛
+- **未验证**：真实模型打分口径是否合理（要跑几轮才知道 62 这个门槛合不合适）；
+  教训在实际召回里是否真进得了提示词
+
+### 事故记录
+改 `lib/index.js` 时用 pwsh 的 `Get-Content -Raw | Set-Content -Encoding utf8` 想加一行 import，
+中文被按 GBK 解码后写回，整份文件乱码。用源码库副本恢复，重做改动，改用 edit 工具。
+教训：**源码一律走 edit/read 工具，不要用 pwsh 读改写源码**。
+
+## 追加：/status 里看不到 autoTune / reflect —— 接错层了（2026-11-16 17:08）
+
+现象：重启后 `GET /api/dsh-shared-brain/status` 里 `autoTune`、`reflect` 都是 undefined。
+
+原因：这两个字段我加在了 `lib/index.js` 的 `snapshotWithRuntime()`，但对外 `/status` 的数据源是 `lib/bridge.js` 的 `snapshotOf()`（597 行）。index.js 那份是另一条路径的快照。
+
+改法（installed 与 repo 两棵树）：`bridge.js` import 段加 `tuneStatus`（来自 auto-tune.js）与 `reflectStatus`（来自 reflect.js），`snapshotOf()` 返回对象里 `updatedAt` 之前加两个字段。无循环依赖（auto-tune → db/modules/emotion/learning，reflect → db/learning）。
+
+验证：两棵树 `node --check` exit 0；直接 `import` installed 的 bridge.js 调 `snapshotOf({})`，`autoTune={"day":"2026-11-16","at":1794819836915,"applied":[],"notes":[],"skipped":"今天已经调过"}`、`reflect={"enabled":true,"perDay":6,"used":0,"left":6,"lessonScore":62,"lastAt":0}`。HTTP 侧要等宿主重启才看得到。
+
+教训：加接口字段前先确认数据源函数，别照着名字相近的函数改。`snapshotWithRuntime` ≠ `/status`。
+
+## 2026-11-16 补充 28：0.10.36 判定回退 / 同题择优 / 每日自检
+
+### 为什么做这三条
+线上最刺眼的三个信号：
+1. 心情判定 `failed` 常年占 20%~40%，`lastError` 全是「这一轮没有可判定的回复内容」/「没切出对话」；
+2. 知识库 308 条里有大量同题条目，「同一件事更完整的说法」永远进不来（相似度过线就丢）；
+3. 所有异常只活在内存 `state` 和日志里，一重启就没了，它自己也不知道「我这几天哪儿别扭」。
+
+### 一、判定失败回退（lib/transcript.js + lib/index.js）
+- 新增 `fallbackTurn(events)`：常规 `extractTurns` 切不出轮次时，直接从事件流尾部找最后一条 `assistant/message` 当回复，再往前找一条真人 `user/message` 当提问。
+- `judgeMoodForTurn` 里 `if (!lastTurn)` 先试兜底，兜住了就 `logger.info('心情判定：常规切轮没切出来，改用事件流尾部兜底')`；兜不住才记 `failed:这一轮没切出对话（事件流里没有可判的轮次，兜底也没找到回复）`。
+- 动机：线上最常见的失败样本就是「尾部有 assistant、前面没有配合格的 user」（续接轮 / 只插了运行时上下文）。
+
+### 二、同题择优（lib/learning.js + lib/index.js）
+- `pickNewCandidates` 三档：完全同文 → 丢；相似（≥0.6）但新文本明显更全（长度 ≥ 旧的 1.3 倍）→ 收，带 `upgradeOf`；其余 → 丢。
+- `saveLearned` 新增 `supersede(items, text, now)`：把旧条目 `weight × 0.6`（下限 0.2）、加 `superseded` 标签、刷 `updatedAt`。不删数据，只让新说法在召回打分里压过旧的。
+- `saveLearned` 支持 `item.weight` 覆盖默认权重（自检条目用 0.5）。
+
+### 三、每日自检（lib/auto-tune.js + lib/index.js）
+- 新增 `SELF_CHECK_KEY = 'selfCheck'`、`planSelfCheck(input, now)`（纯函数）、`runSelfCheck(options, runtime)`。
+- `startAutoTuneLoop` 的每轮检查里顺带跑 `runSelfCheck`，一天只跑一次（kv 里存 `day`），产出 `{day, at, level: 'ok'|'warn', text, lines, warns}`。
+- `index.js` 传入 `getSelfCheck()`（运行时统计 + judgeLog + 学习额度 + 复盘额度）与 `onSelfCheck(report)`：把 report.text 作为一条知识写进库（`sourceRef: '自检'`、`weight: 0.5`、tags `self-check` + `需要留意`/`正常`）。
+- 规则：主动搭话跳过 ≥ 发出 ×3 且 ≥6 次 → 提醒间隔偏短；判定失败率 > 30% → 提醒「是判据或素材的问题，不是额度不够」；`lastError` 非空一并带上。
+
+### 验证
+- `node --check`：transcript.js / learning.js / auto-tune.js / index.js / bridge.js / reflect.js 两棵树全过；两棵 `index.js` SHA1 一致 `C04C2ADBFC15466B827D5FC3990F0894DE7FFE94`。
+- 单测 `%TEMP%\dsh-upgrade-test.mjs`：两棵树各 13 项 **ALL PASS**（同文丢 / 更全收 + upgradeOf / 没更全丢 / 无关照收 / 风格限流 / 自检 ok / 失败率高判 warn / 文案含「不是额度不够」/ 含「间隔可能还是偏短」/ 无数据不产出）。
+- 单测里两次踩了自己的坑：文本以「这个」开头被 `looksWorthKeeping` 的指代词规则丢掉、太短被 minChars 拦掉 —— 都是既有规则，不是 bug。
+
+### 未验证
+- 宿主重启后：真机上判定失败是否下降、`selfCheck` 键与自检知识条目是否出现、同题择优是否真的降权旧条目。
