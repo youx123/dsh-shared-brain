@@ -1117,3 +1117,31 @@ const sameDirWindow = !Number.isFinite(sameDirConfigured) || sameDirConfigured =
 
 ### 未验证
 - 宿主重启后：真机上判定失败是否下降、`selfCheck` 键与自检知识条目是否出现、同题择优是否真的降权旧条目。
+
+## 2026-11-17 补充 29：0.10.37 判定失败归因 / 知识口径 / 计数持久化 / 自改进建议
+
+### 1. 心情判定「失败」有一半不是失败
+`judgeMoodForTurn` 在工具轮就触发，那轮 assistant 没有文本，于是每调一次工具记一次 failed、
+还烧一次判定额度。今天 count 5 / failed 6 里一半是这么来的，而自动调参会拿这个失败率判断
+「是不是判不出来」，结论会跑偏。
+
+改法：`lib/index.js` 两处改记 `noteMoodJudge(store, 'skipped')`（精确字符串 —— 它是精确匹配，
+写 `'skipped:原因'` 会落进 else 分支照样烧额度）。
+
+### 2. 知识条数口径
+界面显示 15 条、3 本，库里其实 327 条、15 个来源。`modules.knowledge.items` 只是「已模块化的
+条目」，召回走的是 db（`candidatesByTerms`），两回事。
+`lib/bridge.js` 的 `snapshotOf()` 改为按库里条目统计 `learning.count` / `knowledge.libraryCount` /
+`books`；客户端文案优先显示 `libraryCount`。
+
+### 3. 自动调参攒不到样本
+`runtime.fired/skipped` 只在内存，重启归零，而调参要求「一天内样本 ≥6」，于是几乎永远攒不够。
+`lib/proactive.js` 新增 `restoreDailyStats` / `flushDailyStats`（20 秒节流、跨天不继承），
+`lib/index.js` 传入 `statsStore` 读写 kv `proactiveStats`。单测 13/13。
+
+### 4. 自改进建议（这部分是「自己优化自己」的最小闭环）
+复盘时顺带让模型想一条「这个插件还能改哪」（`improve` 字段），存进 kv `proposals`，
+`/status` 的 `proposals` 里能看到；相同说法只累加 count。
+**只提不改**：改代码这层永远要人点头。单测 9/9，端到端假模型跑通。
+
+未验证：以上都要重启宿主才加载。
