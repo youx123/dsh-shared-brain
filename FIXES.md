@@ -1145,3 +1145,43 @@ const sameDirWindow = !Number.isFinite(sameDirConfigured) || sameDirConfigured =
 **只提不改**：改代码这层永远要人点头。单测 9/9，端到端假模型跑通。
 
 未验证：以上都要重启宿主才加载。
+
+## 2026-11-18 补充 29：0.10.38 撤掉「按目录兜底」，作用域改回精确会话匹配
+
+**症状**：勾了某个会话、或者取消某个会话之后，主动搭话还是照旧落到别的会话上；用户体感是「勾选/取消没反应」。
+
+**根因**：2026-11-13 为了对付「宿主重启后会话 id 变、勾选失效」，加了 `scopeCwds` 目录兜底 —— 勾过的会话按它的 cwd 放行同目录下的所有活会话；同时 `setAgentiveScope` 会把「取消掉的会话所在的整个目录」记进 `excludedCwds`。这台机器上三个活会话里有两个同 cwd（`D:\微信web开发者工具`），于是：
+- 勾 A、取消 B：B 被 `excludedIds` 挡住，但 A 与 B 同目录，`sameDirSkipped`/目录兜底让结果不可预期；
+- 取消 A 之后，只要同目录还有别的会话勾着，A 就被 cwd 兜底重新放进来 —— 表现为「取消了还在发」。
+
+**改法**（installed 与 repo 两棵树内容一致）：
+1. `lib/proactive.js` `inProactiveScope()`：删掉 `scopeCwds` 兜底整段，末尾 `return false` —— 一个 `sessionIds` 里没有的会话，任何情况下都不发。
+2. `lib/proactive.js` tick：`const agentive = options.getAgentive?.() ?? options.agentive ?? {}`，不再经过 `withScopeCwds()`；`withScopeCwds` 保留但标注弃用（无调用点）。
+3. `lib/index.js`：删掉 `getScopeCwds` 回调（原来每轮读 sessionCatalog 现算 cwd 交给引擎）。
+4. `lib/bridge.js` `setAgentiveScope()`：不再计算/写入 `excludedCwds`（固定写空），只维护 `excludedIds`；回执文案去掉「另有 N 个目录已排除」。
+   `nextExcludedCwds()` 定义保留，已无调用者。
+
+**代价（明知并接受）**：宿主重启后会话 id 会变，之前勾的那条会失效，需要重新勾一次。宁可重勾，也要「勾谁发谁、取消谁停谁」。
+
+**验证**：
+- `dsh-excludedids-test.mjs`：原 11/13，两条断言写的是旧行为（「没排除表时目录兜底照旧」「排除表不影响别的会话」），按新语义改成「同目录但没勾→不发」「没排除表也不按目录兜底」，两棵树各 **13/13**。
+- `dsh-samedir-test.mjs`：目录级冷却不受影响，**ALL PASS**。
+- `dsh-stats-persist-test.mjs`：**13/13 ALL PASS**。
+- 端到端（真实 modules.json + 直接 import 引擎）：A 只勾当前会话 → `cur=true / 同目录 other=false`；B 取消当前、只留 other → `cur=false / other=true`，盘上 `excludedIds=["4a1837a9-…"]`、`excludedCwds=[]`；C 三个都勾 → ok。测完已还原 `sessionIds=["session-4a1837a9-…"]`。
+
+**未验证**：宿主重启后的实机效果（需要重启一次才能跑新代码）。
+
+## 2026-11-18 补充 30：桌面端点勾选「闪一下没反应」——请求根本没带来源头
+
+**现象**：桌面客户端设置页里勾选/取消「自动互动的生效范围」，勾选框闪一下弹回原样，配置不变。
+
+**取证过程**（这次不靠推，全按证据走）：
+1. 在写接口上挂临时日志，记录每个请求的请求头。
+2. 日志实测：`origin="undefined" site="undefined" ct="application/json"`，`isSameSiteRequest=false`。
+   → 请求到达了服务端，但被跨站校验拒掉，403，业务代码没执行。
+3. 桌面端是 Electron 从 `file://` 加载页面，Chromium 对这种源**既不发 `Origin` 也不发 `Sec-Fetch-Site`**（不是发字符串 `"null"`——这是上一版的错误假设）。
+
+**改法**（`lib/bridge.js` `isSameSiteRequest`）：来源头缺失时不再一律拒，改为看内容类型，`content-type` 以 `application/json` 开头就放行。
+CSRF 防线仍然成立：浏览器里的网页要发 JSON 必须过 OPTIONS 预检，宿主对 OPTIONS 回 405 且不带 CORS 头，预检过不去；跨站 simple request 又设不了 `application/json`（设了就触发预检）。单测 8/8。
+
+**教训**：前几轮我拿「服务端我测过是好的」当证据往下推，让他白重启好几趟。往后先抓请求本身，拿不到痕迹再说话。
