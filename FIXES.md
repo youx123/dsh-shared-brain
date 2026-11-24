@@ -1365,3 +1365,39 @@ config 是桌面窗启动后第一个请求（拿动画池/尺寸/轮询间隔�
 GPU 视频层（抓出来只有 DOM 气泡、没有宠物像素），所以「屏幕上肉眼能看到宠物」仍需人眼确认。
 透明置顶窗 + 桌面水印层让 GDI 截屏（CopyFromScreen / PrintWindow）也全部拿不到有效像素，这条路放弃。
 
+## 2026-11-24 补充 36：记忆时间戳被批量压平 + 联网学习改自动
+
+**现象**：`memory.json` 里 718 条记忆有 569 条的 `createdAt` 精确等于 2026-11-24 10:53:31
+（其中 507 条是同一毫秒），全库 createdAt 只有 150 个不同值。按天统计会得出「今天新增 625 条」，
+实际正常日增 10–20 条 —— 历史条目的创建时间被整批重写了。与 11-11 的库备份对同一批 id，
+560 条里 540 条 created_at 被改过，说明这个 bug 至少从 11-11 起就在反复发生，不是 DSH 升级带来的。
+
+**根因**：
+- `lib/store.js` 的 `normalizeStore()` 逐字段重建条目，`createdAt` 缺失时兜底 `Date.now()`；
+  某条重建路径一旦丢了字段，整批条目就被写成同一秒。
+- `lib/db.js` 三处 upsert 原本全是 `ON CONFLICT(id) DO UPDATE SET <全部列> = excluded.<列>`
+  —— 把内存里兜底出来的 now 无条件写回库，历史值被覆盖且不可逆。这是「压平被固化」的那一环。
+
+**改法**：
+1. `lib/db.js`：新增 `ON_CONFLICT_SET`，`created_at` 改成
+   `CASE WHEN memories.created_at > 0 THEN memories.created_at ELSE excluded.created_at END`，
+   三处 upsert 统一用它 —— 库里的创建时间是唯一历史凭据，写入方向不能反过来污染它。
+2. `lib/store.js` `normalizeStore()`：`createdAt` 缺失时先退到 `updatedAt`，两者都没有才用 `Date.now()`。
+3. `lib/health.js`：新增「时间戳压平」检测（按毫秒分桶，某一毫秒 ≥20 条且占比 ≥30% 就报警），
+   结果进 `suggestions` 与 `line`。
+
+**验证**（11:04）：`node --check` 四个文件全过；真实数据跑 `memoryCheck()` →
+`flatCreatedAt={"at":1795488811972,"count":507,"share":71}`，suggestion 输出
+「507 条记忆的创建时间都是 2026/11/24 10:53:31（占 71%）…」；同步安装产物并 `set_plugin` 重载后，
+`GET /status` 的 `health.line` 变成「…｜⚠ 1 条提醒｜…」、`health.notes` 里带上同一条警告。
+
+**未做（有意）**：历史数据的 created_at 没有回填。11-11 的备份本身就带同毫秒污染，按 id 回填
+只能把「假日期 11-24」换成「假日期 11-11」，仍是压平值，还要动一批真数据。
+判断：先止住复发 + 让体检把失真喊出来，比强行改写历史更稳妥。
+
+**顺带改的**：联网学习从「只能手动 `/learn`」改成自动 —— `lib/index.js` 新增 `learnUrlForTurn()`：
+每轮从用户这句话里挑 1 个 http(s) 链接，`network` 模块开着就自动抓那一页学一遍；
+每天上限 6 页、同一 URL 只学一次、先记账再抓（坏链接不会每轮重试）。
+挂在 `agent/turn` 后面的 `void learnUrlForTurn(...)`，和自主学习、复盘并列跑。
+此前 `network.count` 长期为 0，就是这条链路根本没被触发过。
+
