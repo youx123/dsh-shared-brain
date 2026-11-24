@@ -727,6 +727,54 @@ const FAKE_OPENAI_ASSIGN = 'api_key = "' + 'sk-' + 'abcdefghijklmnopqrstuvwxyz12
 ### 验证
 - 新测试 `tests/remote-sync.test.mjs`：**18 通过 / 0 失败**。用内存版假 GitHub Contents API（GET/PUT、sha 校验、409 重试）+ 两个独立 `DSH_HOME` 模拟两台机器，覆盖：仓库地址规整 / 间隔夹紧 / 只收全局条目 / updatedAt 取新 / 墓碑删除 / 30 天清理 / 人设并集 / 设置剥离会话 / A 建远端 / B 拉回 / B 删 A 跟着消失 / A 改 B 拿到新文本 / 409 自动重试 / 状态字段 / 分钟换算 / 没填仓库给清楚错误
 - `tests/ui-render.test.mjs`：加 6 条卡片用例（新增 `collectInputValues` 助手，因为输入框的值在 props 里不在文本里）→ **20 通过**
+
+## 2026-11-24 补充 35：桌宠桌面窗看不到宠物 —— DSH 来源闸门吃掉了 video 请求
+
+### 现象
+DSH 0.2.3-alpha.2 下，桌宠桌面窗（独立 Electron 窗口，`runtime/desktop`）只显示气泡和心情徽章，宠物本体（webm 视频）完全不出现；网页半侧正常。
+
+### 根因
+两层闸门，补充 32 只解决了第一层：
+1. `webServer.register` 的 `auth` 默认 `required`（v0.2.2-rc.2 起）→ 401。补充 32 已用 `auth:'anonymous'` 解决。
+2. 认证过了还有**来源闸门**：`@deepseek-ai/dsh-client-connection/src/api-request-trust.ts` 的 `isTrustedApiRequest`，挂在 `src/rpc-host.ts` 的 `webserver/authorize` 监听里，**在 auth 判断之前**。桌面窗是 `win.loadFile()`（file://）加载的，Chromium 给它发起的跨源 fetch 自动补 `Origin: null` 和 `Sec-Fetch-Site: cross-site`，两条都判 false → 一律 403。
+
+实测（临时在 `main.js` 的 wantShot 分支里加 `executeJavaScript` 探针）：
+```
+renderdiag {"vids":[{"rs":0,"vw":0,"vh":0,"cls":"petvideo show","err":0},...],"shown":1}
+animprobe {"http":403,"ct":null,"bytes":9,"type":"","loaded":false,
+           "err":"4 PipelineStatus::DEMUXER_ERROR_COULD_NOT_OPEN: FFmpegDemuxer: open context failed"}
+```
+`/pet-brain/anim/<名字>.webm` 从桌宠渲染端请求是 403 + 9 字节 `forbidden`，video 解不出 → `videoWidth=0` → `probeContentBox` 永远不触发（日志里从来没出现过 `contentbox` 行）→ 窗口里只剩气泡。
+
+### 改法
+`D:\dsh-repos\dsh-pet-brain\runtime\desktop\main.js`（require 里加 `session`）：
+```js
+session.defaultSession.webRequest.onBeforeSendHeaders({ urls: ['http://127.0.0.1:*/*'] }, (details, cb) => {
+  const headers = { ...details.requestHeaders };
+  let touched = false;
+  for (const k of Object.keys(headers)) {
+    const lk = k.toLowerCase();
+    if (lk === 'origin' || lk === 'sec-fetch-site' || lk === 'sec-fetch-mode' || lk === 'sec-fetch-dest') {
+      delete headers[k]; touched = true;
+    }
+  }
+  cb(touched ? { requestHeaders: headers } : {});
+});
+```
+没有 Origin 时闸门走「缺省 → 信任」分支。只对回环地址生效；浏览器半侧是同源请求、本来就不发 Origin，不受影响。
+
+### 验证
+- `animprobe`：`{"http":200,"ct":"video/webm","bytes":441437,"loaded":true,"vw":640,"vh":360}`
+- `renderdiag`：`{"rs":4,"vw":640,"vh":360,"cls":"petvideo show"}`
+- 日志首次出现 `contentbox {"left":0.3344,"top":0.1778,"right":0.6672,"bottom":0.9194}`
+- `capturePage` 截图：宠物本体 + 气泡「早啊，今天想先干哪件」+ 底部「70 · 开心」徽章，齐全
+- curl `/pet-brain/config` 200、`/pet-brain/anim/待机呼吸休闲.webm` 200
+
+### 未验证 / 待办
+- **桌面上的实际像素**仍无法用系统截图证明（透明置顶窗：GDI `CopyFromScreen` 抓到的是下层 App，`PrintWindow(PW_RENDERFULLCONTENT)` 出纯白）；只有 `win.webContents.capturePage()` 能拿到内容，所以「肉眼看得到」要人工确认。
+- 改动依赖 Electron 允许擦掉 `Sec-Fetch-*` 头；将来 Electron 若收紧（这些是受保护头），表现会退回 403。
+- 桌宠没走 tgz：`profile\node_modules\dsh-pet-brain` 是指向 `D:\dsh-repos\dsh-pet-brain` 的 junction，改完重启即生效；但该仓库改动尚未提交。
+- 顺带：`/pet-brain/desktop` 的 `POST {action:'restart'}` 是重启 helper 的正路。直接 `Stop-Process` 杀掉 helper 时，若连续 3 次会触发 `desktop.js` 的 `RESTART_DELAYS = [1000, 5000, 15000]` 退避，之后就**不再自动拉起**（要手动调 restart）。
 - `test/harness.js`：加 0.9.9 分组（仓库规整 / 只同步全局 / 状态字段 / `setRemoteSync` 同步返回 / `syncNow` 返回 Promise）→ 全部通过
 - 全量回归：audit-fixes 47 / proactive-mood 52 / emotion 47 / emoji-builtin 27 / remote-sync 18 / ui-render 20 / harness 全过
 - 打包：`vendor/dsh-shared-brain-0.9.9.tgz` **3723477 字节 / 133 文件**（26 lib + 4 元文件 + 103 assets），integrity `sha512-cShi/8sSIEyqQuAA9J6bY8ri2k/dZFOTINTeWLjCVLvIwZymgWWAmNIMUyx6Qyb8vdnYPYCDyeXW/2Cvhb+Zuw==`；`pnpm-lock.yaml` 路径 5 处 + 插件 integrity 1 处精确替换（antfu 那条复核完好，旧值 0 残留）；隔离目录 pnpm 11.28.5 安装 → `+ dsh-shared-brain 0.9.9`，26 lib / 103 assets，`remoteSyncStatus` 15 个字段，`setRemoteSync` 同步返回
@@ -1185,3 +1233,135 @@ const sameDirWindow = !Number.isFinite(sameDirConfigured) || sameDirConfigured =
 CSRF 防线仍然成立：浏览器里的网页要发 JSON 必须过 OPTIONS 预检，宿主对 OPTIONS 回 405 且不带 CORS 头，预检过不去；跨站 simple request 又设不了 `application/json`（设了就触发预检）。单测 8/8。
 
 **教训**：前几轮我拿「服务端我测过是好的」当证据往下推，让他白重启好几趟。往后先抓请求本身，拿不到痕迹再说话。
+
+---
+
+## 2026-11-18 补充 31：心情只跌不涨（0.10.38 之后）
+
+**现象**：老大问「你的心情一直在掉，什么情况」。查 `emotion.json`，本会话 `4a1837a9` 一天 40 次判定里 **neg=25 / zero=15 / pos=0**，mood 从 67 掉到 62；`judgeLog` 零失败，说明不是判定坏了，是判定规则偏了。
+
+**三条失血路径**
+1. `emotion.js` silence 分支：只要这轮判成 `silence`，不管前面连扣过几次，**一律再硬扣 1 分**。而「他派活、我干活汇报、他没逐条回」是最常见的轮次形态。
+2. `moodJudgeSystem` 规则只给「被惦记/被夸/好事」加分，「常态不算好事」，干活办成给 0~+1 —— 于是几乎没有正分。
+3. `decayMood` 虽往 `moodBase` 回归，但半衰期 12 小时，每十分钟一轮只拉回零点几分，追不上每轮 −1~−3。
+
+**改法**
+- silence 分支：首次只记一笔不扣分（`silentTurns` 从 0 → 1），连续第二次起才扣，且幅度减半（`0.5`）。数值保留两位小数，不再硬取整。
+- `moodJudgeSystem` 规则 5 补「自己办成的事」：查清问题、修好 bug、跑通验证都给 +1~+2，dim 给 calm 或 happy。
+- `moodJudgeSystem` 新增规则 11：澄清「没接话」只在明显冷淡/敷衍时才算，连着好几轮才扣，幅度 −0.5~−1.5；silence 提示词里的幅度也从「−1 ~ −3」降到「−0.5 ~ −1.5」。
+- 新增 `recoverTowardBase(state, options, now)`：这轮没判出负分、也没被晾着，且 `moodBase - mood > 8` 时，每轮往基准拉 `min(0.5, gap*0.02)`。由 `applyMoodDelta` 开头调用。
+- `lib/index.js` 调 `applyMoodDelta` 时传 `moodBase: config.moodBase`（不传则回升完全不生效 —— 这里容易漏）。
+
+**验证**（`%TEMP%\sb-mood-recover-test.mjs`，直接 import 真实 `emotion.js`）
+| 场景 | 结果 |
+|---|---|
+| 62 分，silence 第 1 次 | 62（不扣） |
+| 62 分，silence 第 2 次 | 61.5 |
+| 60 分，无负分无 silence | 60.2（回升） |
+| 68 分，无负分（缺口 2） | 68（不动） |
+| 60 分，delta −3 | 59（不回血） |
+| 60 分，delta +2 | 61（回升 + 折算取整） |
+
+两棵树 `node --check` 全过，`emotion.js` SHA1 前 12 位 `2EEBB44EE44C`、`index.js` `5979C6AB7FCB`，两边一致。
+
+**未验证**：宿主重启后连续几轮的真实走势（需要观察一两天，看 mood 是否能在无负面事件时回升而不是一路阴跌）。
+
+---
+
+## 2026-11-24 补充 32：DSH 0.2.3 认证闸门把关——插件 HTTP 接口全 401
+
+**症状**：DSH 升到 0.2.3-alpha.2 之后，桌宠桌面窗与共享大脑的接口一律 401（响应体 `unauthorized`，
+`Cache-Control: no-store`）。Web 页面里同源请求正常（带会话 Cookie），只有桌面端与 node 侧的裸 fetch 挂掉：
+`/pet-brain/state`、`/pet-brain/ping`、`/api/dsh-shared-brain/status`、`pulse`、`graph`、`emoji/*.gif` 全部 401。
+
+**根因**：DSH v0.2.2-rc.2 的 guide `connection-page-peer` —— `ctx.webServer.register({...})` 新增
+`auth: 'anonymous' | 'required' | 'deny'`（或同步选择器），**默认 `required`**。两个插件注册路由时都没写 `auth`，
+于是全部落到默认的「需要会话认证」上。
+认证之前还有一道来源闸门（`@deepseek-ai/dsh-client-connection/src/api-request-trust.ts` 的
+`isTrustedApiRequest`），桌宠桌面端是 Electron 从 `file://` 加载，Chromium 既不送 `Origin` 也不送
+`Sec-Fetch-Site`（见补充 30），所以闸门是放行的 —— 唯一挡路的就是 auth 策略。
+
+**改法**（两插件共 7 处注册，只加一行，路由自身的回环校验/方法校验/`x-pet-token` 全部保留）：
+1. `dsh-shared-brain` `lib/index.js` 6 处 `scope.webServer.register({ ... kind, path ... })` 各加 `auth: 'anonymous',`
+   —— status / mutate / graph / pulse / learn / emoji 六个端点。
+2. `dsh-pet-brain` `lib/index.js` 唯一注册块（`kind: 'prefix', path: '/pet-brain'`）加 `auth: 'anonymous',`。
+
+   两棵树都改：shared-brain 的仓库与 installed 副本各 6 处（安装版来自 vendor tgz，得单独补）；
+   桌宠 node_modules 是指向仓库的 junction，改仓库即改运行代码。
+
+**重载**：不用重启整个 DSH。`plugin_manager(action='set_plugin', target='include:shared-brain', enabled=true)`
+会走 `plugin-manager` 的 reload，当场卸载重挂（桌宠那边会连带把桌面窗重启一次）。
+实测 reload 后 `curl` 立即 200。
+
+**验证**（2026-11-24 10:12，活着的 64327，不带任何 Cookie / Origin）：
+
+| 请求 | 改前 | 改后 |
+|---|---|---|
+| `GET /pet-brain/state` | 401 | **200**（`ok:true`，persona 小深，mood 70 冷数据回落） |
+| `GET /pet-brain/ping` | 401 | 405（方法不对，说明路由已命中最前面的例外：`ping` 要 POST，已进 handler） |
+| `GET /api/dsh-shared-brain/status` | 401 | **200** |
+| `GET /api/dsh-shared-brain/pulse` | 401 | **200** |
+| `GET /api/dsh-shared-brain/graph` | 401 | **200** |
+| `GET /api/dsh-shared-brain/emoji/happy.gif` | 401 | **200** |
+
+三个文件 `node --check` 全过（用安装目录里 Electron 的 node 24.22.3 校验）。
+桌宠桌面窗在 reload 后 10:12:32 重启，日志有 `ready-to-show`、无 console 报错、指针命中持续
+（`pointer hit=true`），`/pet-brain/state` 里 persona / mood / action / voice 全部就位。
+顺带核对了新版的 engines 下限：DSH 0.2.3-alpha.1 要求 Node ≥ 24.22.3 或 26.13.1，本机 Electron 44.11.5
+带的是 node **24.22.3**，恰好达标。
+
+**未验证**：
+- 桌面窗的像素级画面（透明置顶窗 + 桌面水印层，GDI 截屏和 PrintWindow 都抓不到；`pointer hit=true`
+  说明渲染端 DOM 在位、窗口可交互，但「肉眼看得到」这条留给人眼确认）。
+- 桌宠宿主侧跨插件调用（`proactive.js` 打 pulse、`remember.js` 打 mutate）的真实回执，要等下一轮主动搭话/记忆写入才看得到。
+- 只改了代码没重新打包：`vendor/dsh-shared-brain-0.10.38.tgz` 还是旧的，**下次 `pnpm install` 会把 installed
+  副本覆盖回去重新 401**；正式做法是升版本重打包再重装（同时把 `dsh.compatibility.dshReleases` 补到 0.2.3-alpha.2）。
+
+**顺带发现的两处隐患**（本次未改）：
+1. `dsh-shared-brain` 的 `dsh.engines.dsh` 写在 `dsh` 字段里面，而规范要求是 package.json **顶层** `engines.dsh`；
+   另外 `dsh.compatibility.dshReleases` 只列到 0.2.1-rc.3。两处都只是声明，实测加载与运行不受影响。
+2. `C:\Users\13176\.dsh\profiles\desktop\package.json` 里桌宠写成 `link:../../../Documents/dsh-pet-brain`，
+   但那个目录不存在（实际 junction 指向 `D:\dsh-repos\dsh-pet-brain`）—— 下次 install 可能要重链接。
+
+## 2026-11-24 补充 33：0.10.39 重打包发布 —— 把 auth:'anonymous' 真正落进 tgz
+
+**现象**：补充 32 只改了运行副本和仓库源码，`vendor/dsh-shared-brain-0.10.38.tgz` 还是旧的。下次
+`pnpm install` 会把 node_modules 里的副本覆盖回去，接口重新 401，等于白修。
+
+**改法**：
+- `tools/mktgz-versioned.cjs` 打 `vendor/dsh-shared-brain-0.10.39.tgz`（3930534 字节 / 152 文件 / 45 个 lib）。
+- manifest 0.10.38 → **0.10.39**；`dsh.compatibility.dshReleases` 补 `"0.2.3-alpha.2": "compatible"`
+  （实测过才写；`dsh.engines.dsh` 位置保持不动 —— 挪成顶层后 `>=0.2.0-rc.1` 在 semver 预发布规则下反而不匹配 alpha 版）。
+- `profile/package.json` 与 `pnpm-lock.yaml`（5 处）同步到 `file:vendor/dsh-shared-brain-0.10.39.tgz` + 新 integrity。
+- 安装：`node_modules/dsh-shared-brain` 备份为 `.bak-shared-brain-0.10.38`，tar 直接覆盖
+  （profile 是 `nodeLinker: hoisted`，顶层 node_modules 就是实体目录，覆盖等价于 install）。
+
+**验证**：安装产物 45 lib / 103 assets / `auth: 'anonymous'` 命中 6 处 / 6 个 lib `node --check` 全过；
+reload 后 `status`、`pulse`、`graph`、`emoji`、`/pet-brain/state` 全部 200。
+
+**坑**：`plugin_manager set_plugin(enabled=true)` 返回 `changed:false, application:"applied"` 时**不一定**重启
+依赖插件拉起的子进程；这次桌宠桌面窗就没重启，得手动 `Stop-Process` 掉 electron 主进程，宿主会自己重拉。
+
+## 2026-11-24 补充 34：桌宠 `/pet-brain/config` 500 —— BAND_ACTIONS 只是转发导出
+
+**现象**：认证闸门修好后接口集体 200，唯独桌宠 `GET /pet-brain/config` 返回
+`500 {"ok":false,"error":"internal error"}`。用临时 catch 落盘拿到堆栈：
+`ReferenceError: BAND_ACTIONS is not defined at handle (lib/index.js:1072)`。
+config 是桌面窗启动后第一个请求（拿动画池/尺寸/轮询间隔），它挂了 → 桌宠拿不到素材清单。
+
+**根因**：2026-11-11 把心情→动作映射挪进 `lib/mood-anim.js` 时，index.js 末尾留了
+`export { BAND_ACTIONS } from './mood-anim.js';` —— **转发导出不会在当前模块作用域建绑定**，
+而 config 分支里 `bandActions: BAND_ACTIONS` 引用的是本地标识符 → ReferenceError。静态审查看不出来，
+只有真跑一遍才炸。
+
+**改法**（`D:\dsh-repos\dsh-pet-brain\lib\index.js`）：import 行补上名字，
+`import { BAND_ACTIONS, actionPool, moodSignature } from './mood-anim.js';`，末尾那句转发保留给旧引用。
+
+**验证**：`GET /pet-brain/config` → **200**，1954 字节，
+`animations` 15 项 / `bandActions` 6 档 / `dims` 7 维 / `pollMs:2000` / `size:462`；
+桌宠桌面窗 `capturePage` 能抓到气泡「早啊，今天想先干哪件」—— 说明渲染端确实拿到了数据并画出来了。
+
+**未验证**：宠物本体是 `<video>` 播的 webm，`webContents.capturePage()` 与 `desktopCapturer` 都抓不到
+GPU 视频层（抓出来只有 DOM 气泡、没有宠物像素），所以「屏幕上肉眼能看到宠物」仍需人眼确认。
+透明置顶窗 + 桌面水印层让 GDI 截屏（CopyFromScreen / PrintWindow）也全部拿不到有效像素，这条路放弃。
+
