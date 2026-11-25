@@ -1401,3 +1401,57 @@ GPU 视频层（抓出来只有 DOM 气泡、没有宠物像素），所以「�
 挂在 `agent/turn` 后面的 `void learnUrlForTurn(...)`，和自主学习、复盘并列跑。
 此前 `network.count` 长期为 0，就是这条链路根本没被触发过。
 
+## 2026-11-25 补充 37：补充 36 没堵死 —— 整库替换仍会抹掉创建时间
+
+**现象**：补充 36 上线后，批量联网学习 8 篇（14:40–14:41）结束，全库 792 条里有 523 条的
+`createdAt` 又被刷成同一毫秒（14:40:32.153），`knowledge` 模块 437 条**全部**落在那一天；
+0.10.40 加的 `ON_CONFLICT_SET` 保护看起来没起作用。
+
+**根因**（比补充 36 更靠上游）：
+- `lib/db.js` `replaceAllEntries(entries)` 是「事务内 `DELETE FROM memories` + `DELETE FROM memory_terms`，
+  再逐条 `INSERT`」。**先删后插**意味着库里原来的 `created_at` 在插入时已经不存在了，
+  于是 `ON CONFLICT` 那套 CASE 保护彻底失效 —— 传进来什么值就落什么值。
+  它唯一的调用点是 `lib/store.js:180`：`readStore()` 的「侧门导入」分支，即检测到
+  `memory.json` 比库新、且两份内容摘要不同时，把 JSON 整份导进库。
+- 而 `memory.json` 会先被压平（插件重载/重建那一刻，条目 createdAt 兜底成 now），
+  于是「压平 JSON → 侧门导入 → 整库 DELETE+重插 → 库也压平」形成闭环。
+- 另外侧门导入之后返回的是「导入那份」entries，紧接着的 `writeStore` 又把假时间写回 JSON。
+
+**改法（三层，全部在写路径收口）**：
+1. `lib/db.js` `replaceAllEntries`：**DELETE 之前**先 `SELECT id, created_at FROM memories` 存 Map；
+   插入时若同 id 已有非零 `created_at` 且与传入值不同，就用库里的值，并
+   `console.warn('[dsh-shared-brain] 整库替换时保住了 N 条记忆的原始创建时间')`。
+2. `lib/store.js` 新增 `anchorCreatedAt(entries)`：`readAllEntries()` 建 id→created_at Map，
+   对每条「库里已有该 id 且值不同」的条目强制用库值；在 `writeStore` 里
+   `dedupeEntries` 之后、构造 payload 之前调用，命中时 warn「写盘前按库校正了 N 条」。
+   理由：所有写盘都收口在 `writeStore`，上游哪条路径拿 now 重建条目都拦不住，只能在这一层兜底。
+3. `lib/store.js` 侧门导入分支：`replaceAllEntries(imported.entries)` 之后改成
+   `importedEntries = readAllEntries()`（读不回才用 imported 那份）再返回，日志报导入条数。
+4. `lib/health.js` 检测器补盲区：原来只按**毫秒**分桶，抓不到「每条 ms 不同、但全挤在同一分钟内」
+   的形态；新增按**分钟**分桶的后备判定（≥20 条且占比 ≥30%），文案变成
+   「N 条记忆的创建时间都挤在 <时间> 这一分钟内（占 X%）」。
+
+**验证**：
+- 副本单测（`%TEMP%\repro4`，绝不碰真库）：给 798 条各塞唯一真值 `1700000000000+i*1000`，
+  把 JSON 全部改成 `Date.now()`、mtime 推新 → `readStore()` 后 `db 被改条数=0/798`；
+  再 `writeStore()` 后 `JSON 与真值不一致=0`。三层都按预期工作。
+- 真实数据跑新检测器：`flatCreatedAt={"at":1795589220000,"count":793,"share":99,"window":"minute"}`，
+  `health.line` 出现「⚠ 1 条提醒」，`health.notes` 里是
+  「793 条记忆的创建时间都挤在 2026/11/25 14:47:00 这一分钟内（占 99%）…」。
+- 四个改动文件 `node --check` 全过；仓库与安装产物 MD5 一致；`set_plugin` 重载后 `/status` 200。
+
+**历史数据不可恢复（已逐条核实，别再幻想回填）**：现存的每一份快照**都在它自己的时刻被压平过** ——
+- 远端数据仓 `youx123/dsh-shared-brain-data` 每 10 分钟一提交，取到的历史版本：
+  11-23T10:07Z n=706 uniq=161 但 top 是 `11-23T03:06:57 x401`；今天 06:33Z uniq=76、
+  06:43Z uniq=54、06:45Z uniq=63 —— 全是压平态；只有 06:48Z 那版 uniq=796 是健康的。
+- 本地 `memory.json.bak-sourcefix`（11-06）uniq=88、`memory.json.bak-retag-...`（11-11）uniq=60，
+  各自最大值都占三四成以上。
+- `modules.json` 桶里还留着部分真实创建时间，但那是 `mod_` 桶条目，和 `mem_` 扁平条目不是一一对应，
+  不能直接回灌。
+- `updated_at` 同样被刷成今天（798 条里 794 条是今天，`created=updated` 只有 2 条），不能当近似。
+- 结论：**这次修复只能防未来，已经丢掉的历史创建时间找不回来**。不假装能修。
+
+**未验证**：真实「学习 8 篇 → 时间戳不再被压平」的端到端复现还没跑（要再花一次真实学习额度）；
+上游到底是插件重载的哪一步把 JSON 压平的，仍然没有定论（reload 单独复现不出来，
+大概率依赖某个并发/侧门条件），因此采取的是「在写路径兜底」而不是「掐住元凶」。
+
